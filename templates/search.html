@@ -85,6 +85,11 @@
                     <input type="text" id="ai-query" style="flex: 1; padding: var(--spacing-md); font-size: 1rem;"
                            placeholder="שאל שאלה... למשל: מי כתב הכי הרבה? מתי דיברו על X? מי הכי פעיל בלילה?"
                            onkeypress="if(event.key==='Enter') aiSearch()">
+                    <select id="ai-mode" style="padding: var(--spacing-md); border-radius: var(--radius-md); background: var(--bg-sidebar); color: var(--text-primary); border: 1px solid var(--border-color);">
+                        <option value="auto">Auto</option>
+                        <option value="context">Context (AI קורא הודעות)</option>
+                        <option value="sql">SQL Search</option>
+                    </select>
                     <button onclick="aiSearch()" class="btn btn-primary" style="padding: var(--spacing-md) var(--spacing-lg);">
                         🤖 שאל AI
                     </button>
@@ -98,7 +103,8 @@
                     </details>
                 </div>
                 <div style="margin-top: var(--spacing-sm); font-size: 0.75rem; color: var(--text-muted);">
-                    💡 דוגמאות: "מי שלח הכי הרבה קישורים?" | "מתי היו הכי הרבה הודעות?" | "הראה את ההודעות של משה מהשבוע האחרון"
+                    💡 SQL: "מי שלח הכי הרבה?" | "מתי היו הכי הרבה הודעות?"<br>
+                    🧠 Context: "באיזה בית חולים האחות עובדת?" | "מה יוסי חושב על X?" (AI קורא ומבין הקשר)
                 </div>
             </div>
         </section>
@@ -298,6 +304,7 @@
         // AI Search
         async function aiSearch() {
             const query = document.getElementById('ai-query').value.trim();
+            const mode = document.getElementById('ai-mode').value;
             if (!query) return;
 
             const resultDiv = document.getElementById('ai-result');
@@ -305,14 +312,14 @@
             const sqlPre = document.getElementById('ai-sql');
 
             resultDiv.style.display = 'block';
-            answerDiv.textContent = 'מחפש...';
+            answerDiv.textContent = mode === 'context' ? 'קורא הודעות ומנתח...' : 'מחפש...';
             sqlPre.textContent = '';
 
             try {
                 const response = await fetch('/api/ai/search', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query })
+                    body: JSON.stringify({ query, mode })
                 });
 
                 const data = await response.json();
