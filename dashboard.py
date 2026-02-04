@@ -1092,19 +1092,19 @@ def api_chat_messages():
     query = f"""
         SELECT
             m.id,
-            m.message_id,
+            m.id as message_id,
             m.date,
             m.from_id,
             m.from_name,
             m.text_plain as text,
             m.reply_to_message_id,
             m.forwarded_from,
-            m.media_type,
+            m.has_media,
             m.has_links as has_link,
             r.from_name as reply_to_name,
             substr(r.text_plain, 1, 100) as reply_to_text
         FROM messages m
-        LEFT JOIN messages r ON m.reply_to_message_id = r.message_id
+        LEFT JOIN messages r ON m.reply_to_message_id = r.id
         WHERE {where_clause}
         ORDER BY m.date DESC
         LIMIT ? OFFSET ?
@@ -1139,8 +1139,8 @@ def api_chat_thread(message_id):
         visited.add(msg_id)
 
         cursor = conn.execute("""
-            SELECT message_id, date, from_name, text_plain as text, reply_to_message_id
-            FROM messages WHERE message_id = ?
+            SELECT id as message_id, date, from_name, text_plain as text, reply_to_message_id
+            FROM messages WHERE id = ?
         """, (msg_id,))
         row = cursor.fetchone()
 
@@ -1152,7 +1152,7 @@ def api_chat_thread(message_id):
     def get_children(msg_id):
         """Get all replies to a message."""
         cursor = conn.execute("""
-            SELECT message_id, date, from_name, text_plain as text, reply_to_message_id
+            SELECT id as message_id, date, from_name, text_plain as text, reply_to_message_id
             FROM messages WHERE reply_to_message_id = ?
             ORDER BY date
         """, (msg_id,))
@@ -1186,7 +1186,7 @@ def api_chat_context(message_id):
     conn = get_db()
 
     # Get target message date
-    cursor = conn.execute("SELECT date FROM messages WHERE message_id = ?", (message_id,))
+    cursor = conn.execute("SELECT date FROM messages WHERE id = ?", (message_id,))
     row = cursor.fetchone()
 
     if not row:
@@ -1197,8 +1197,8 @@ def api_chat_context(message_id):
 
     # Get messages before
     cursor = conn.execute("""
-        SELECT message_id, date, from_id, from_name, text_plain as text,
-               reply_to_message_id, media_type, has_links as has_link
+        SELECT id as message_id, date, from_id, from_name, text_plain as text,
+               reply_to_message_id, has_media, has_links as has_link
         FROM messages
         WHERE date < ?
         ORDER BY date DESC
@@ -1208,17 +1208,17 @@ def api_chat_context(message_id):
 
     # Get target message
     cursor = conn.execute("""
-        SELECT message_id, date, from_id, from_name, text_plain as text,
-               reply_to_message_id, media_type, has_links as has_link
+        SELECT id as message_id, date, from_id, from_name, text_plain as text,
+               reply_to_message_id, has_media, has_links as has_link
         FROM messages
-        WHERE message_id = ?
+        WHERE id = ?
     """, (message_id,))
     target_msg = dict(cursor.fetchone())
 
     # Get messages after
     cursor = conn.execute("""
-        SELECT message_id, date, from_id, from_name, text_plain as text,
-               reply_to_message_id, media_type, has_links as has_link
+        SELECT id as message_id, date, from_id, from_name, text_plain as text,
+               reply_to_message_id, has_media, has_links as has_link
         FROM messages
         WHERE date > ?
         ORDER BY date ASC
@@ -1298,7 +1298,7 @@ def fallback_ai_search(query: str):
     try:
         cursor = conn.execute('''
             SELECT
-                m.message_id, m.date, m.from_name, m.text_plain as text
+                m.id as message_id, m.date, m.from_name, m.text_plain as text
             FROM messages_fts
             JOIN messages m ON messages_fts.rowid = m.id
             WHERE messages_fts MATCH ?
