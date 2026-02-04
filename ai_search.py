@@ -52,8 +52,8 @@ class AISearchEngine:
             self.model = "llama-3.1-70b-versatile"
         elif provider == "gemini" and HAS_GEMINI:
             genai.configure(api_key=self.api_key)
-            # Using 2.5 Flash - free, fast, with reasoning capabilities
-            self.client = genai.GenerativeModel("gemini-2.5-flash")
+            # Using 2.5 Pro - free, best for SQL/code generation
+            self.client = genai.GenerativeModel("gemini-2.5-pro")
         elif provider == "ollama":
             self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
             self.model = os.getenv("OLLAMA_MODEL", "llama3.1")
