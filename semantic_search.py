@@ -147,10 +147,10 @@ class SemanticSearch:
 
     def _add_thread_context(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Add thread context to search results.
-        For each message, find:
-        1. The message it's replying to (parent)
-        2. Messages that reply to it (children)
+        Add FULL thread context to search results.
+        For each message, find the entire conversation thread:
+        1. Go up to find the root message
+        2. Get all messages in that thread
         """
         if not results:
             return results
@@ -158,49 +158,95 @@ class SemanticSearch:
         conn = sqlite3.connect(self.messages_db)
         conn.row_factory = sqlite3.Row
 
-        # Collect all message IDs
-        message_ids = {r['message_id'] for r in results}
         all_messages = {r['message_id']: r for r in results}
+        thread_roots = set()
 
-        # Find parent messages (what these messages reply to)
-        reply_to_ids = {r.get('reply_to_message_id') for r in results if r.get('reply_to_message_id')}
-        reply_to_ids = reply_to_ids - message_ids  # Don't fetch what we already have
+        # Step 1: Find root messages by following reply chains UP
+        for result in results:
+            msg_id = result['message_id']
+            reply_to = result.get('reply_to_message_id')
 
-        if reply_to_ids:
-            placeholders = ','.join('?' * len(reply_to_ids))
-            cursor = conn.execute(f"""
-                SELECT id, date, from_name, text_plain, reply_to_message_id
-                FROM messages WHERE id IN ({placeholders})
-            """, list(reply_to_ids))
-            for row in cursor:
-                all_messages[row['id']] = {
-                    'message_id': row['id'],
-                    'date': row['date'],
-                    'from_name': row['from_name'],
-                    'text': row['text_plain'],
-                    'reply_to_message_id': row['reply_to_message_id'],
-                    'is_context': True  # Mark as context, not original result
-                }
+            # Follow the chain up to find the root
+            current_id = msg_id
+            current_reply_to = reply_to
+            visited = {current_id}
 
-        # Find child messages (replies to our results)
-        if message_ids:
-            placeholders = ','.join('?' * len(message_ids))
-            cursor = conn.execute(f"""
-                SELECT id, date, from_name, text_plain, reply_to_message_id
-                FROM messages WHERE reply_to_message_id IN ({placeholders})
-                ORDER BY date ASC
-                LIMIT 100
-            """, list(message_ids))
-            for row in cursor:
-                if row['id'] not in all_messages:
-                    all_messages[row['id']] = {
-                        'message_id': row['id'],
-                        'date': row['date'],
-                        'from_name': row['from_name'],
-                        'text': row['text_plain'],
-                        'reply_to_message_id': row['reply_to_message_id'],
-                        'is_reply': True  # Mark as reply
-                    }
+            while current_reply_to and current_reply_to not in visited:
+                visited.add(current_reply_to)
+                cursor = conn.execute(
+                    "SELECT id, reply_to_message_id FROM messages WHERE id = ?",
+                    (current_reply_to,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    current_id = row['id']
+                    current_reply_to = row['reply_to_message_id']
+                else:
+                    break
+
+            # current_id is now the root of this thread
+            thread_roots.add(current_id)
+
+        # Step 2: Get ALL messages in these threads (recursively)
+        def get_thread_messages(root_ids, depth=0, max_depth=10):
+            """Recursively get all messages in threads."""
+            if not root_ids or depth > max_depth:
+                return []
+
+            messages = []
+
+            # Get root messages themselves
+            if root_ids:
+                placeholders = ','.join('?' * len(root_ids))
+                cursor = conn.execute(f"""
+                    SELECT id, date, from_name, text_plain, reply_to_message_id
+                    FROM messages WHERE id IN ({placeholders})
+                """, list(root_ids))
+                for row in cursor:
+                    if row['id'] not in all_messages:
+                        messages.append({
+                            'message_id': row['id'],
+                            'date': row['date'],
+                            'from_name': row['from_name'],
+                            'text': row['text_plain'],
+                            'reply_to_message_id': row['reply_to_message_id'],
+                            'is_thread_context': True
+                        })
+                        all_messages[row['id']] = messages[-1]
+
+            # Get all replies to these messages
+            all_ids = set(root_ids) | set(all_messages.keys())
+            if all_ids:
+                placeholders = ','.join('?' * len(all_ids))
+                cursor = conn.execute(f"""
+                    SELECT id, date, from_name, text_plain, reply_to_message_id
+                    FROM messages WHERE reply_to_message_id IN ({placeholders})
+                    LIMIT 200
+                """, list(all_ids))
+
+                new_ids = set()
+                for row in cursor:
+                    if row['id'] not in all_messages:
+                        msg = {
+                            'message_id': row['id'],
+                            'date': row['date'],
+                            'from_name': row['from_name'],
+                            'text': row['text_plain'],
+                            'reply_to_message_id': row['reply_to_message_id'],
+                            'is_thread_context': True
+                        }
+                        messages.append(msg)
+                        all_messages[row['id']] = msg
+                        new_ids.add(row['id'])
+
+                # Recursively get replies to the new messages
+                if new_ids:
+                    messages.extend(get_thread_messages(new_ids, depth + 1, max_depth))
+
+            return messages
+
+        # Get all thread messages
+        get_thread_messages(thread_roots)
 
         conn.close()
 
