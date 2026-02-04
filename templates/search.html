@@ -325,9 +325,21 @@
                 const data = await response.json();
 
                 if (data.error) {
-                    answerDiv.textContent = `שגיאה: ${data.error}`;
+                    answerDiv.innerHTML = `<span style="color:#ff6b6b;">שגיאה: ${escapeHtml(data.error)}</span>`;
                 } else {
-                    answerDiv.textContent = data.answer || 'לא נמצאה תשובה';
+                    let html = escapeHtml(data.answer || 'לא נמצאה תשובה');
+
+                    // Show mode info
+                    if (data.mode === 'context_search') {
+                        html += `<br><br><small style="color:var(--text-muted);">🧠 Hybrid Search: קראתי ${data.context_messages} הודעות`;
+                        if (data.context_user) html += ` מ"${escapeHtml(data.context_user)}"`;
+                        if (data.keywords_used && data.keywords_used.length > 0) {
+                            html += `<br>🔑 מילות מפתח: ${data.keywords_used.slice(0, 5).join(', ')}`;
+                        }
+                        html += `</small>`;
+                    }
+
+                    answerDiv.innerHTML = html;
                     sqlPre.textContent = data.sql || '';
 
                     // If results contain messages, optionally populate main search
