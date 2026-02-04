@@ -30,6 +30,48 @@ from algorithms import (
 )
 
 app = Flask(__name__)
+DB_PATH = 'telegram.db'
+
+
+def get_db():
+    """Get database connection."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def parse_timeframe(timeframe: str) -> tuple[int, int]:
+    """Parse timeframe string to Unix timestamps."""
+    now = datetime.now()
+    today_start = datetime(now.year, now.month, now.day)
+
+    if timeframe == 'today':
+        start = today_start
+        end = now
+    elif timeframe == 'yesterday':
+        start = today_start - timedelta(days=1)
+        end = today_start
+    elif timeframe == 'week':
+        start = today_start - timedelta(days=7)
+        end = now
+    elif timeframe == 'month':
+        start = today_start - timedelta(days=30)
+        end = now
+    elif timeframe == 'year':
+        start = today_start - timedelta(days=365)
+        end = now
+    elif timeframe == 'all':
+        return 0, int(now.timestamp())
+    else:
+        # Custom range: "start,end" as Unix timestamps
+        try:
+            parts = timeframe.split(',')
+            return int(parts[0]), int(parts[1])
+        except:
+            return 0, int(now.timestamp())
+
+    return int(start.timestamp()), int(end.timestamp())
+
 
 # ==========================================
 # GLOBAL ALGORITHM CACHES
@@ -72,47 +114,6 @@ def get_user_rank_tree(timeframe: str):
     conn.close()
     _user_rank_tree_timeframe = timeframe
     return _user_rank_tree
-DB_PATH = 'telegram.db'
-
-
-def get_db():
-    """Get database connection."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def parse_timeframe(timeframe: str) -> tuple[int, int]:
-    """Parse timeframe string to Unix timestamps."""
-    now = datetime.now()
-    today_start = datetime(now.year, now.month, now.day)
-
-    if timeframe == 'today':
-        start = today_start
-        end = now
-    elif timeframe == 'yesterday':
-        start = today_start - timedelta(days=1)
-        end = today_start
-    elif timeframe == 'week':
-        start = today_start - timedelta(days=7)
-        end = now
-    elif timeframe == 'month':
-        start = today_start - timedelta(days=30)
-        end = now
-    elif timeframe == 'year':
-        start = today_start - timedelta(days=365)
-        end = now
-    elif timeframe == 'all':
-        return 0, int(now.timestamp())
-    else:
-        # Custom range: "start,end" as Unix timestamps
-        try:
-            parts = timeframe.split(',')
-            return int(parts[0]), int(parts[1])
-        except:
-            return 0, int(now.timestamp())
-
-    return int(start.timestamp()), int(end.timestamp())
 
 
 # ==========================================
