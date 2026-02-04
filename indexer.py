@@ -443,15 +443,11 @@ class IncrementalIndexer:
         self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row
 
-        # Load existing message IDs into Bloom filter
-        self.bloom = BloomFilter(expected_items=2000000, fp_rate=0.001)
-        self._load_existing_ids()
-
         # Batch buffers
         self.message_batch: list[tuple] = []
         self.entity_batch: list[tuple] = []
 
-        # Stats
+        # Stats (must be initialized before _load_existing_ids)
         self.stats = {
             'total_in_file': 0,
             'new_messages': 0,
@@ -459,6 +455,10 @@ class IncrementalIndexer:
             'entities': 0,
             'users_updated': 0
         }
+
+        # Load existing message IDs into Bloom filter
+        self.bloom = BloomFilter(expected_items=2000000, fp_rate=0.001)
+        self._load_existing_ids()
 
     def _load_existing_ids(self) -> None:
         """Load existing message IDs into Bloom filter for O(1) duplicate detection."""
