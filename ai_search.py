@@ -261,11 +261,12 @@ If showing a list, format it nicely. Keep it brief but informative."""
         - FTS5 finds messages from האחות containing these keywords
         - AI reads and infers the answer
         """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
 
-        # Step 1: AI extracts user name AND relevant keywords
-        extract_prompt = f"""Analyze this question and extract:
+            # Step 1: AI extracts user name AND relevant keywords
+            extract_prompt = f"""Analyze this question and extract:
 1. USER_NAME: The specific person being asked about (or NONE if not about a specific person)
 2. KEYWORDS: Hebrew keywords to search for in their messages (related to the question topic)
 
@@ -281,112 +282,112 @@ KEYWORDS: בית חולים, עבודה, מחלקה, סורוקה, רמבם, א�
 
 Extract:"""
 
-        if self.provider == "gemini":
-            extraction = self._call_gemini(extract_prompt).strip()
-        elif self.provider == "groq":
-            extraction = self._call_groq(extract_prompt).strip()
-        else:
-            extraction = self._call_ollama(extract_prompt).strip()
+            if self.provider == "gemini":
+                extraction = self._call_gemini(extract_prompt).strip()
+            elif self.provider == "groq":
+                extraction = self._call_groq(extract_prompt).strip()
+            else:
+                extraction = self._call_ollama(extract_prompt).strip()
 
-        # Parse extraction
-        user_name = None
-        keywords = []
-        for line in extraction.split('\n'):
-            if line.startswith('USER_NAME:'):
-                name = line.replace('USER_NAME:', '').strip()
-                if name.upper() != 'NONE' and len(name) < 50:
-                    user_name = name
-            elif line.startswith('KEYWORDS:'):
-                kw_str = line.replace('KEYWORDS:', '').strip()
-                keywords = [k.strip() for k in kw_str.split(',') if k.strip()]
+            # Parse extraction
+            user_name = None
+            keywords = []
+            for line in extraction.split('\n'):
+                if line.startswith('USER_NAME:'):
+                    name = line.replace('USER_NAME:', '').strip()
+                    if name.upper() != 'NONE' and len(name) < 50:
+                        user_name = name
+                elif line.startswith('KEYWORDS:'):
+                    kw_str = line.replace('KEYWORDS:', '').strip()
+                    keywords = [k.strip() for k in kw_str.split(',') if k.strip()]
 
-        messages = []
+            messages = []
 
-        # Step 2: Hybrid retrieval - FTS5 keyword search + recent messages
-        if user_name and keywords:
-            # Build FTS5 query for keywords
-            fts_query = ' OR '.join(keywords[:10])  # Limit to 10 keywords
+            # Step 2: Hybrid retrieval - FTS5 keyword search + recent messages
+            if user_name and keywords:
+                # Build FTS5 query for keywords
+                fts_query = ' OR '.join(keywords[:10])  # Limit to 10 keywords
 
-            # Search for messages from user containing keywords
-            cursor = conn.execute("""
-                SELECT date, from_name, text_plain as text
-                FROM messages
-                WHERE from_name LIKE ?
-                AND id IN (SELECT id FROM messages_fts WHERE messages_fts MATCH ?)
-                ORDER BY date DESC
-                LIMIT 100
-            """, (f"%{user_name}%", fts_query))
-            messages = [dict(row) for row in cursor.fetchall()]
+                # Search for messages from user containing keywords
+                cursor = conn.execute("""
+                    SELECT date, from_name, text
+                    FROM messages
+                    WHERE from_name LIKE ?
+                    AND id IN (SELECT id FROM messages_fts WHERE messages_fts MATCH ?)
+                    ORDER BY date DESC
+                    LIMIT 100
+                """, (f"%{user_name}%", fts_query))
+                messages = [dict(row) for row in cursor.fetchall()]
 
-            # Also add some recent messages for context (might contain relevant info without keywords)
-            cursor = conn.execute("""
-                SELECT date, from_name, text_plain as text
-                FROM messages
-                WHERE from_name LIKE ?
-                ORDER BY date DESC
-                LIMIT 50
-            """, (f"%{user_name}%",))
-            recent = [dict(row) for row in cursor.fetchall()]
+                # Also add some recent messages for context (might contain relevant info without keywords)
+                cursor = conn.execute("""
+                    SELECT date, from_name, text
+                    FROM messages
+                    WHERE from_name LIKE ?
+                    ORDER BY date DESC
+                    LIMIT 50
+                """, (f"%{user_name}%",))
+                recent = [dict(row) for row in cursor.fetchall()]
 
-            # Combine and deduplicate
-            seen_texts = {m['text'] for m in messages if m['text']}
-            for m in recent:
-                if m['text'] and m['text'] not in seen_texts:
-                    messages.append(m)
-                    seen_texts.add(m['text'])
+                # Combine and deduplicate
+                seen_texts = {m['text'] for m in messages if m['text']}
+                for m in recent:
+                    if m['text'] and m['text'] not in seen_texts:
+                        messages.append(m)
+                        seen_texts.add(m['text'])
 
-        elif user_name:
-            # No keywords, just get user's messages
-            cursor = conn.execute("""
-                SELECT date, from_name, text_plain as text
-                FROM messages
-                WHERE from_name LIKE ?
-                ORDER BY date DESC
-                LIMIT 200
-            """, (f"%{user_name}%",))
-            messages = [dict(row) for row in cursor.fetchall()]
+            elif user_name:
+                # No keywords, just get user's messages
+                cursor = conn.execute("""
+                    SELECT date, from_name, text
+                    FROM messages
+                    WHERE from_name LIKE ?
+                    ORDER BY date DESC
+                    LIMIT 200
+                """, (f"%{user_name}%",))
+                messages = [dict(row) for row in cursor.fetchall()]
 
-        elif keywords:
-            # No user, search all messages for keywords
-            fts_query = ' OR '.join(keywords[:10])
-            cursor = conn.execute("""
-                SELECT date, from_name, text_plain as text
-                FROM messages
-                WHERE id IN (SELECT id FROM messages_fts WHERE messages_fts MATCH ?)
-                ORDER BY date DESC
-                LIMIT 100
-            """, (fts_query,))
-            messages = [dict(row) for row in cursor.fetchall()]
+            elif keywords:
+                # No user, search all messages for keywords
+                fts_query = ' OR '.join(keywords[:10])
+                cursor = conn.execute("""
+                    SELECT date, from_name, text
+                    FROM messages
+                    WHERE id IN (SELECT id FROM messages_fts WHERE messages_fts MATCH ?)
+                    ORDER BY date DESC
+                    LIMIT 100
+                """, (fts_query,))
+                messages = [dict(row) for row in cursor.fetchall()]
 
-        else:
-            # Fallback: recent messages
-            cursor = conn.execute("""
-                SELECT date, from_name, text_plain as text
-                FROM messages
-                WHERE text_plain IS NOT NULL AND text_plain != ''
-                ORDER BY date DESC
-                LIMIT 100
-            """)
-            messages = [dict(row) for row in cursor.fetchall()]
+            else:
+                # Fallback: recent messages
+                cursor = conn.execute("""
+                    SELECT date, from_name, text
+                    FROM messages
+                    WHERE text IS NOT NULL AND text != ''
+                    ORDER BY date DESC
+                    LIMIT 100
+                """)
+                messages = [dict(row) for row in cursor.fetchall()]
 
-        conn.close()
+            conn.close()
 
-        if not messages:
-            return {
-                "query": query,
-                "answer": "לא נמצאו הודעות רלוונטיות",
-                "context_messages": 0,
-                "keywords_used": keywords,
-                "mode": "context_search"
-            }
+            if not messages:
+                return {
+                    "query": query,
+                    "answer": "לא נמצאו הודעות רלוונטיות",
+                    "context_messages": 0,
+                    "keywords_used": keywords,
+                    "mode": "context_search"
+                }
 
-        # Step 3: AI reasons over the retrieved messages
-        context_text = "\n".join([
-            f"[{m['date']}] {m['from_name']}: {m['text'][:500]}"
-            for m in messages if m['text']
-        ])
+            # Step 3: AI reasons over the retrieved messages
+            context_text = "\n".join([
+                f"[{m['date']}] {m['from_name']}: {m['text'][:500]}"
+                for m in messages if m['text']
+            ])
 
-        reason_prompt = f"""You are analyzing a Telegram chat history to answer a question.
+            reason_prompt = f"""You are analyzing a Telegram chat history to answer a question.
 Read the messages carefully and infer the answer from context clues.
 The user may not have stated things directly - look for hints, mentions, and implications.
 
@@ -402,21 +403,27 @@ If you truly cannot find any relevant information, say so.
 
 Answer:"""
 
-        if self.provider == "gemini":
-            answer = self._call_gemini(reason_prompt)
-        elif self.provider == "groq":
-            answer = self._call_groq(reason_prompt)
-        else:
-            answer = self._call_ollama(reason_prompt)
+            if self.provider == "gemini":
+                answer = self._call_gemini(reason_prompt)
+            elif self.provider == "groq":
+                answer = self._call_groq(reason_prompt)
+            else:
+                answer = self._call_ollama(reason_prompt)
 
-        return {
-            "query": query,
-            "answer": answer,
-            "context_user": user_name,
-            "context_messages": len(messages),
-            "keywords_used": keywords,
-            "mode": "context_search"
-        }
+            return {
+                "query": query,
+                "answer": answer,
+                "context_user": user_name,
+                "context_messages": len(messages),
+                "keywords_used": keywords,
+                "mode": "context_search"
+            }
+        except Exception as e:
+            return {
+                "query": query,
+                "error": f"Context search error: {str(e)}",
+                "mode": "context_search"
+            }
 
     def search(self, query: str, generate_answer: bool = True) -> Dict[str, Any]:
         """
