@@ -304,10 +304,14 @@ Cite specific messages when relevant.
 Answer:"""
 
         try:
-            if hasattr(ai_engine, '_call_gemini'):
+            # Call the appropriate AI provider based on engine configuration
+            provider = getattr(ai_engine, 'provider', None)
+            if provider == 'gemini':
                 answer = ai_engine._call_gemini(reason_prompt)
-            elif hasattr(ai_engine, '_call_groq'):
+            elif provider == 'groq':
                 answer = ai_engine._call_groq(reason_prompt)
+            elif provider == 'ollama':
+                answer = ai_engine._call_ollama(reason_prompt)
             else:
                 answer = "AI engine not available for reasoning"
         except Exception as e:

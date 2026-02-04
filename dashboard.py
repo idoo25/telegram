@@ -1254,25 +1254,79 @@ def api_chat_context(message_id):
 # ==========================================
 
 # Global AI engine (lazy loaded)
-ai_engine = None
+_ai_engine = None
+_ai_engine_init_attempted = False
 
 def get_ai_engine():
     """Get or create AI search engine."""
-    global ai_engine
-    if ai_engine is None:
+    global _ai_engine, _ai_engine_init_attempted
+
+    if _ai_engine is not None:
+        return _ai_engine
+
+    if _ai_engine_init_attempted:
+        return None  # Already tried and failed
+
+    _ai_engine_init_attempted = True
+
+    try:
+        from ai_search import AISearchEngine
+        import os
+
+        provider = os.getenv('AI_PROVIDER', 'ollama')
+        # Get API key - check both generic and provider-specific env vars
+        api_key = os.getenv('AI_API_KEY') or os.getenv(f'{provider.upper()}_API_KEY')
+
+        print(f"Initializing AI engine with provider: {provider}")
+        _ai_engine = AISearchEngine(DB_PATH, provider, api_key)
+        print(f"AI engine initialized successfully")
+        return _ai_engine
+    except Exception as e:
+        print(f"AI Search not available: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+@app.route('/api/ai/status')
+def api_ai_status():
+    """Get AI engine status for debugging."""
+    provider = os.getenv('AI_PROVIDER', 'ollama')
+    api_key = os.getenv('AI_API_KEY') or os.getenv(f'{provider.upper()}_API_KEY')
+
+    status = {
+        'provider': provider,
+        'api_key_set': bool(api_key),
+        'api_key_preview': f"{api_key[:8]}..." if api_key and len(api_key) > 8 else None,
+        'ai_engine_initialized': _ai_engine is not None,
+        'init_attempted': _ai_engine_init_attempted,
+        'semantic_search_available': HAS_SEMANTIC_SEARCH,
+    }
+
+    # Check if we can initialize now
+    if _ai_engine is None and not _ai_engine_init_attempted:
+        engine = get_ai_engine()
+        status['ai_engine_initialized'] = engine is not None
+
+    # Check for embeddings
+    if HAS_SEMANTIC_SEARCH:
         try:
-            from ai_search import AISearchEngine
-            import os
-
-            # Try providers in order of preference
-            provider = os.getenv('AI_PROVIDER', 'ollama')
-            api_key = os.getenv('AI_API_KEY')
-
-            ai_engine = AISearchEngine(DB_PATH, provider, api_key)
+            ss = get_semantic_search()
+            status['embeddings_available'] = ss.is_available()
+            status['embeddings_stats'] = ss.stats()
         except Exception as e:
-            print(f"AI Search not available: {e}")
-            return None
-    return ai_engine
+            status['embeddings_error'] = str(e)
+
+    return jsonify(status)
+
+
+@app.route('/api/ai/reset')
+def api_ai_reset():
+    """Reset AI engine to allow re-initialization."""
+    global _ai_engine, _ai_engine_init_attempted
+    _ai_engine = None
+    _ai_engine_init_attempted = False
+    return jsonify({'status': 'reset', 'message': 'AI engine will be reinitialized on next request'})
 
 
 @app.route('/api/ai/search', methods=['POST'])
@@ -1304,12 +1358,14 @@ def api_ai_search():
             else:
                 # Just semantic search without AI reasoning
                 results = ss.search_with_full_text(query, limit=30)
+                provider = os.getenv('AI_PROVIDER', 'ollama')
+                api_key_set = bool(os.getenv('AI_API_KEY') or os.getenv(f'{provider.upper()}_API_KEY'))
                 return jsonify({
                     'query': query,
                     'mode': 'semantic',
                     'results': results,
                     'count': len(results),
-                    'answer': f"נמצאו {len(results)} הודעות דומות סמנטית. (AI לא זמין לניתוח)"
+                    'answer': f"נמצאו {len(results)} הודעות דומות סמנטית לשאילתה.\n\n⚠️ AI לא זמין - בדוק שה-API key מוגדר (provider: {provider}, key set: {api_key_set})"
                 })
         except Exception as e:
             return jsonify({'error': f'Semantic search error: {str(e)}'})
