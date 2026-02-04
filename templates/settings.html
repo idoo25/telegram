@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - Telegram Analytics</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .upload-zone {
+            border: 2px dashed var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-xl);
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            margin-bottom: var(--spacing-xl);
+        }
+
+        .upload-zone:hover,
+        .upload-zone.dragover {
+            border-color: var(--primary);
+            background: rgba(0, 136, 204, 0.1);
+        }
+
+        .upload-zone-icon {
+            font-size: 3rem;
+            margin-bottom: var(--spacing-md);
+        }
+
+        .upload-zone-text {
+            color: var(--text-secondary);
+            margin-bottom: var(--spacing-sm);
+        }
+
+        .upload-zone-hint {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .upload-progress {
+            display: none;
+            margin-top: var(--spacing-lg);
+        }
+
+        .upload-progress.active {
+            display: block;
+        }
+
+        .progress-bar-container {
+            background: var(--bg-sidebar);
+            border-radius: var(--radius-md);
+            height: 20px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: var(--primary);
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 0.75rem;
+        }
+
+        .upload-result {
+            display: none;
+            margin-top: var(--spacing-lg);
+            padding: var(--spacing-lg);
+            border-radius: var(--radius-lg);
+        }
+
+        .upload-result.success {
+            display: block;
+            background: rgba(40, 167, 69, 0.2);
+            border: 1px solid var(--success);
+        }
+
+        .upload-result.error {
+            display: block;
+            background: rgba(220, 53, 69, 0.2);
+            border: 1px solid var(--danger);
+        }
+
+        .result-title {
+            font-weight: 600;
+            margin-bottom: var(--spacing-md);
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+        }
+
+        .result-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: var(--spacing-md);
+        }
+
+        .result-stat {
+            text-align: center;
+            padding: var(--spacing-md);
+            background: var(--bg-sidebar);
+            border-radius: var(--radius-md);
+        }
+
+        .result-stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .result-stat-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .db-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: var(--spacing-md);
+            margin-bottom: var(--spacing-xl);
+        }
+
+        .db-stat {
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-lg);
+            border: 1px solid var(--border-color);
+        }
+
+        .db-stat-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .db-stat-label {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            margin-top: var(--spacing-xs);
+        }
+
+        .instructions {
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-lg);
+            border: 1px solid var(--border-color);
+        }
+
+        .instructions h3 {
+            margin-bottom: var(--spacing-md);
+        }
+
+        .instructions ol {
+            padding-right: var(--spacing-lg);
+            color: var(--text-secondary);
+            line-height: 1.8;
+        }
+
+        .instructions code {
+            background: var(--bg-sidebar);
+            padding: 2px 6px;
+            border-radius: var(--radius-sm);
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <nav class="sidebar">
+        <div class="logo">
+            <span class="logo-icon">📊</span>
+            <span class="logo-text">TG Analytics</span>
+        </div>
+        <ul class="nav-menu">
+            <li class="nav-item">
+                <a href="/" class="nav-link">
+                    <span class="icon">📈</span>
+                    <span>Overview</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/users" class="nav-link">
+                    <span class="icon">👥</span>
+                    <span>Users</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/chat" class="nav-link">
+                    <span class="icon">💬</span>
+                    <span>Chat</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/search" class="nav-link">
+                    <span class="icon">🔍</span>
+                    <span>Search</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/moderation" class="nav-link">
+                    <span class="icon">🛡️</span>
+                    <span>Moderation</span>
+                </a>
+            </li>
+            <li class="nav-item active">
+                <a href="/settings" class="nav-link">
+                    <span class="icon">⚙️</span>
+                    <span>Settings</span>
+                </a>
+            </li>
+        </ul>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Header -->
+        <header class="header">
+            <h1>⚙️ Settings & Update Data</h1>
+        </header>
+
+        <!-- Database Stats -->
+        <section>
+            <h2 style="margin-bottom: var(--spacing-md);">📊 Database Status</h2>
+            <div class="db-stats" id="db-stats">
+                <div class="db-stat">
+                    <div class="db-stat-value" id="stat-messages">-</div>
+                    <div class="db-stat-label">Total Messages</div>
+                </div>
+                <div class="db-stat">
+                    <div class="db-stat-value" id="stat-users">-</div>
+                    <div class="db-stat-label">Total Users</div>
+                </div>
+                <div class="db-stat">
+                    <div class="db-stat-value" id="stat-first">-</div>
+                    <div class="db-stat-label">First Message</div>
+                </div>
+                <div class="db-stat">
+                    <div class="db-stat-value" id="stat-last">-</div>
+                    <div class="db-stat-label">Last Message</div>
+                </div>
+                <div class="db-stat">
+                    <div class="db-stat-value" id="stat-size">-</div>
+                    <div class="db-stat-label">Database Size</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Upload Section -->
+        <section class="chart-card" style="margin-bottom: var(--spacing-xl);">
+            <div class="chart-header">
+                <h3>📤 Update Database with New JSON</h3>
+            </div>
+            <div style="padding: var(--spacing-lg);">
+                <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
+                    <div class="upload-zone-icon">📁</div>
+                    <div class="upload-zone-text">גרור קובץ JSON לכאן או לחץ לבחירה</div>
+                    <div class="upload-zone-hint">קבצי Telegram export JSON בלבד</div>
+                    <input type="file" id="file-input" accept=".json" style="display: none;" onchange="handleFileSelect(event)">
+                </div>
+
+                <div class="upload-progress" id="upload-progress">
+                    <div class="progress-bar-container">
+                        <div class="progress-bar-fill" id="progress-fill" style="width: 0%;">0%</div>
+                    </div>
+                    <p style="text-align: center; margin-top: var(--spacing-sm); color: var(--text-muted);" id="progress-text">
+                        מעבד...
+                    </p>
+                </div>
+
+                <div class="upload-result" id="upload-result">
+                    <div class="result-title" id="result-title"></div>
+                    <div class="result-stats" id="result-stats"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Instructions -->
+        <section class="instructions">
+            <h3>📖 איך לייצא נתונים מטלגרם</h3>
+            <ol>
+                <li>פתח את <strong>Telegram Desktop</strong> (לא ניתן מהאפליקציה הניידת)</li>
+                <li>לך ל-<strong>Settings → Advanced → Export Telegram data</strong></li>
+                <li>בחר את הקבוצה/צ'אט שברצונך לייצא</li>
+                <li>סמן <strong>JSON</strong> כפורמט הייצוא</li>
+                <li>לחץ <strong>Export</strong> והמתן לסיום</li>
+                <li>העלה את קובץ <code>result.json</code> כאן</li>
+            </ol>
+            <div style="margin-top: var(--spacing-lg); padding: var(--spacing-md); background: var(--bg-sidebar); border-radius: var(--radius-md);">
+                <strong>💡 טיפ:</strong> המערכת תזהה אוטומטית הודעות כפולות ותוסיף רק הודעות חדשות.
+                אין צורך לדאוג מהעלאת אותו קובץ פעמיים.
+            </div>
+        </section>
+
+        <!-- CLI Instructions -->
+        <section class="instructions" style="margin-top: var(--spacing-xl);">
+            <h3>💻 עדכון דרך שורת הפקודה</h3>
+            <p style="color: var(--text-secondary); margin-bottom: var(--spacing-md);">
+                לקבצים גדולים, מומלץ להשתמש בשורת הפקודה:
+            </p>
+            <pre style="background: var(--bg-sidebar); padding: var(--spacing-md); border-radius: var(--radius-md); overflow-x: auto; direction: ltr; text-align: left;">
+# עדכון database קיים עם JSON חדש
+python indexer.py new_export.json --db telegram.db --update
+
+# יצירת database חדש
+python indexer.py result.json --db telegram.db
+            </pre>
+        </section>
+    </main>
+
+    <script>
+        // Load database stats on page load
+        document.addEventListener('DOMContentLoaded', loadDbStats);
+
+        async function loadDbStats() {
+            try {
+                const response = await fetch('/api/db/stats');
+                const stats = await response.json();
+
+                document.getElementById('stat-messages').textContent =
+                    stats.total_messages?.toLocaleString() || '-';
+                document.getElementById('stat-users').textContent =
+                    stats.total_users?.toLocaleString() || '-';
+                document.getElementById('stat-first').textContent =
+                    stats.first_message ? new Date(stats.first_message).toLocaleDateString('he-IL') : '-';
+                document.getElementById('stat-last').textContent =
+                    stats.last_message ? new Date(stats.last_message).toLocaleDateString('he-IL') : '-';
+                document.getElementById('stat-size').textContent =
+                    stats.db_size_mb ? `${stats.db_size_mb} MB` : '-';
+            } catch (error) {
+                console.error('Error loading db stats:', error);
+            }
+        }
+
+        // Drag and drop handlers
+        const uploadZone = document.getElementById('upload-zone');
+
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadZone.classList.add('dragover');
+        });
+
+        uploadZone.addEventListener('dragleave', () => {
+            uploadZone.classList.remove('dragover');
+        });
+
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('dragover');
+
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                uploadFile(files[0]);
+            }
+        });
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                uploadFile(file);
+            }
+        }
+
+        async function uploadFile(file) {
+            if (!file.name.endsWith('.json')) {
+                showError('נא לבחור קובץ JSON בלבד');
+                return;
+            }
+
+            const progressDiv = document.getElementById('upload-progress');
+            const progressFill = document.getElementById('progress-fill');
+            const progressText = document.getElementById('progress-text');
+            const resultDiv = document.getElementById('upload-result');
+
+            // Reset and show progress
+            progressDiv.classList.add('active');
+            resultDiv.className = 'upload-result';
+            progressFill.style.width = '0%';
+            progressFill.textContent = '0%';
+            progressText.textContent = `מעלה ${file.name}...`;
+
+            try {
+                // Read file
+                progressFill.style.width = '20%';
+                progressFill.textContent = '20%';
+                progressText.textContent = 'קורא קובץ...';
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                // Upload
+                progressFill.style.width = '50%';
+                progressFill.textContent = '50%';
+                progressText.textContent = 'מעבד נתונים...';
+
+                const response = await fetch('/api/update', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                progressFill.style.width = '100%';
+                progressFill.textContent = '100%';
+
+                if (result.success) {
+                    showSuccess(result.stats);
+                    loadDbStats(); // Refresh stats
+                } else {
+                    showError(result.error || 'שגיאה לא ידועה');
+                }
+
+            } catch (error) {
+                showError(error.message);
+            }
+
+            // Hide progress after a delay
+            setTimeout(() => {
+                progressDiv.classList.remove('active');
+            }, 1000);
+        }
+
+        function showSuccess(stats) {
+            const resultDiv = document.getElementById('upload-result');
+            const resultTitle = document.getElementById('result-title');
+            const resultStats = document.getElementById('result-stats');
+
+            resultDiv.className = 'upload-result success';
+            resultTitle.innerHTML = '✅ העדכון הושלם בהצלחה!';
+
+            resultStats.innerHTML = `
+                <div class="result-stat">
+                    <div class="result-stat-value">${stats.total_in_file?.toLocaleString() || 0}</div>
+                    <div class="result-stat-label">הודעות בקובץ</div>
+                </div>
+                <div class="result-stat">
+                    <div class="result-stat-value">${stats.new_messages?.toLocaleString() || 0}</div>
+                    <div class="result-stat-label">הודעות חדשות נוספו</div>
+                </div>
+                <div class="result-stat">
+                    <div class="result-stat-value">${stats.duplicates?.toLocaleString() || 0}</div>
+                    <div class="result-stat-label">כפילויות (דולגו)</div>
+                </div>
+                <div class="result-stat">
+                    <div class="result-stat-value">${stats.elapsed_seconds?.toFixed(1) || 0}s</div>
+                    <div class="result-stat-label">זמן עיבוד</div>
+                </div>
+            `;
+        }
+
+        function showError(message) {
+            const resultDiv = document.getElementById('upload-result');
+            const resultTitle = document.getElementById('result-title');
+            const resultStats = document.getElementById('result-stats');
+
+            resultDiv.className = 'upload-result error';
+            resultTitle.innerHTML = `❌ שגיאה: ${message}`;
+            resultStats.innerHTML = '';
+        }
+    </script>
+</body>
+</html>

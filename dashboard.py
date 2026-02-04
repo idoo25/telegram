@@ -103,6 +103,12 @@ def chat_page():
     return render_template('chat.html')
 
 
+@app.route('/settings')
+def settings_page():
+    """Settings and data update page."""
+    return render_template('settings.html')
+
+
 # ==========================================
 # API ENDPOINTS - OVERVIEW STATS
 # ==========================================
@@ -1012,6 +1018,93 @@ def api_ai_similar(message_id):
         return jsonify(similar)
     except Exception as e:
         return jsonify({'error': str(e)})
+
+
+# ==========================================
+# API ENDPOINTS - DATABASE UPDATE
+# ==========================================
+
+@app.route('/api/update', methods=['POST'])
+def api_update_database():
+    """
+    Update database with new JSON data.
+
+    Accepts JSON file upload or raw JSON in request body.
+    Only new messages (not already in DB) will be added.
+    """
+    try:
+        # Check if file was uploaded
+        if 'file' in request.files:
+            file = request.files['file']
+            if file.filename == '':
+                return jsonify({'error': 'No file selected'}), 400
+
+            # Read and parse JSON
+            try:
+                json_data = json.loads(file.read().decode('utf-8'))
+            except json.JSONDecodeError as e:
+                return jsonify({'error': f'Invalid JSON: {str(e)}'}), 400
+        else:
+            # Try to get JSON from request body
+            json_data = request.get_json()
+            if not json_data:
+                return jsonify({'error': 'No JSON data provided'}), 400
+
+        # Import and use IncrementalIndexer
+        from indexer import IncrementalIndexer
+
+        indexer = IncrementalIndexer(DB_PATH)
+        try:
+            stats = indexer.update_from_json_data(json_data, show_progress=False)
+        finally:
+            indexer.close()
+
+        return jsonify({
+            'success': True,
+            'stats': {
+                'total_in_file': stats['total_in_file'],
+                'new_messages': stats['new_messages'],
+                'duplicates': stats['duplicates'],
+                'entities': stats['entities'],
+                'elapsed_seconds': round(stats['elapsed_seconds'], 2)
+            }
+        })
+
+    except FileNotFoundError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/db/stats')
+def api_db_stats():
+    """Get database statistics."""
+    conn = get_db()
+
+    stats = {}
+
+    # Total messages
+    cursor = conn.execute('SELECT COUNT(*) FROM messages')
+    stats['total_messages'] = cursor.fetchone()[0]
+
+    # Total users
+    cursor = conn.execute('SELECT COUNT(DISTINCT from_id) FROM messages WHERE from_id IS NOT NULL')
+    stats['total_users'] = cursor.fetchone()[0]
+
+    # Date range
+    cursor = conn.execute('SELECT MIN(date), MAX(date) FROM messages')
+    row = cursor.fetchone()
+    stats['first_message'] = row[0]
+    stats['last_message'] = row[1]
+
+    # Database file size
+    import os
+    if os.path.exists(DB_PATH):
+        stats['db_size_mb'] = round(os.path.getsize(DB_PATH) / (1024 * 1024), 2)
+
+    conn.close()
+
+    return jsonify(stats)
 
 
 # ==========================================
