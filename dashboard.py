@@ -17,10 +17,17 @@ import sqlite3
 import json
 import csv
 import io
+import os
 from datetime import datetime, timedelta
 from flask import Flask, render_template, jsonify, request, Response
 from typing import Optional
 from collections import defaultdict
+
+# ==========================================
+# AI CONFIGURATION - Add your API key here
+# ==========================================
+os.environ['AI_PROVIDER'] = 'gemini'
+os.environ['GEMINI_API_KEY'] = 'YOUR_API_KEY_HERE'  # <-- Replace with your Gemini API key
 
 # Import our algorithms
 from algorithms import (
