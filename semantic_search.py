@@ -132,7 +132,7 @@ class SemanticSearch:
 
         for result in results:
             cursor = conn.execute(
-                "SELECT date, from_name, text_plain FROM messages WHERE id = ?",
+                "SELECT date, from_name, text_plain, reply_to_message_id FROM messages WHERE id = ?",
                 (result['message_id'],)
             )
             row = cursor.fetchone()
@@ -140,9 +140,75 @@ class SemanticSearch:
                 result['date'] = row['date']
                 result['from_name'] = row['from_name']
                 result['text'] = row['text_plain']
+                result['reply_to_message_id'] = row['reply_to_message_id']
 
         conn.close()
         return results
+
+    def _add_thread_context(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Add thread context to search results.
+        For each message, find:
+        1. The message it's replying to (parent)
+        2. Messages that reply to it (children)
+        """
+        if not results:
+            return results
+
+        conn = sqlite3.connect(self.messages_db)
+        conn.row_factory = sqlite3.Row
+
+        # Collect all message IDs
+        message_ids = {r['message_id'] for r in results}
+        all_messages = {r['message_id']: r for r in results}
+
+        # Find parent messages (what these messages reply to)
+        reply_to_ids = {r.get('reply_to_message_id') for r in results if r.get('reply_to_message_id')}
+        reply_to_ids = reply_to_ids - message_ids  # Don't fetch what we already have
+
+        if reply_to_ids:
+            placeholders = ','.join('?' * len(reply_to_ids))
+            cursor = conn.execute(f"""
+                SELECT id, date, from_name, text_plain, reply_to_message_id
+                FROM messages WHERE id IN ({placeholders})
+            """, list(reply_to_ids))
+            for row in cursor:
+                all_messages[row['id']] = {
+                    'message_id': row['id'],
+                    'date': row['date'],
+                    'from_name': row['from_name'],
+                    'text': row['text_plain'],
+                    'reply_to_message_id': row['reply_to_message_id'],
+                    'is_context': True  # Mark as context, not original result
+                }
+
+        # Find child messages (replies to our results)
+        if message_ids:
+            placeholders = ','.join('?' * len(message_ids))
+            cursor = conn.execute(f"""
+                SELECT id, date, from_name, text_plain, reply_to_message_id
+                FROM messages WHERE reply_to_message_id IN ({placeholders})
+                ORDER BY date ASC
+                LIMIT 100
+            """, list(message_ids))
+            for row in cursor:
+                if row['id'] not in all_messages:
+                    all_messages[row['id']] = {
+                        'message_id': row['id'],
+                        'date': row['date'],
+                        'from_name': row['from_name'],
+                        'text': row['text_plain'],
+                        'reply_to_message_id': row['reply_to_message_id'],
+                        'is_reply': True  # Mark as reply
+                    }
+
+        conn.close()
+
+        # Sort all messages by date
+        all_list = list(all_messages.values())
+        all_list.sort(key=lambda x: x.get('date', '') or '')
+
+        return all_list
 
     def search_with_ai_answer(self, query: str, ai_engine, limit: int = 30) -> Dict[str, Any]:
         """
@@ -150,7 +216,8 @@ class SemanticSearch:
 
         This combines the power of:
         1. Semantic search (finds relevant messages by meaning)
-        2. AI reasoning (reads messages and answers the question)
+        2. Thread context (includes replies to/from found messages)
+        3. AI reasoning (reads messages and answers the question)
         """
         results = self.search_with_full_text(query, limit=limit)
 
@@ -163,24 +230,28 @@ class SemanticSearch:
                 'count': 0
             }
 
-        # Build context from semantic search results
+        # Get thread context for each result
+        results_with_threads = self._add_thread_context(results)
+
+        # Build context from semantic search results + threads
         context_text = "\n".join([
             f"[{r.get('date', '')}] {r.get('from_name', 'Unknown')}: {r.get('text', '')[:500]}"
-            for r in results if r.get('text')
+            for r in results_with_threads if r.get('text')
         ])
 
         # Send to AI for reasoning
         reason_prompt = f"""You are analyzing a Telegram chat history to answer a question.
-The messages below were found using semantic search - they are the most relevant to the question.
+The messages below were found using semantic search, along with their thread context (replies).
 Read them carefully and provide a comprehensive answer.
 
 Question: {query}
 
-Relevant messages (found by semantic similarity):
+Relevant messages and their threads:
 {context_text}
 
 Based on these messages, answer the question in Hebrew.
 If you can find the answer, provide it clearly.
+Pay special attention to reply chains - the answer might be in a reply!
 If you can infer information from context clues, do so.
 Cite specific messages when relevant.
 
@@ -200,8 +271,9 @@ Answer:"""
             'query': query,
             'answer': answer,
             'mode': 'semantic_ai',
-            'results': results,
-            'count': len(results)
+            'results': results,  # Original results for display
+            'count': len(results),
+            'total_with_threads': len(results_with_threads)
         }
 
     def is_available(self) -> bool:

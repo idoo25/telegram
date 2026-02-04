@@ -346,7 +346,11 @@
                         }
                         html += `</small>`;
                     } else if (data.mode === 'semantic_ai' || data.mode === 'semantic') {
-                        html += `<br><br><small style="color:var(--text-muted);">🔮 Semantic + AI: נמצאו ${data.count} הודעות דומות, AI ניתח ועונה</small>`;
+                        html += `<br><br><small style="color:var(--text-muted);">🔮 Semantic + AI: נמצאו ${data.count} הודעות דומות`;
+                        if (data.total_with_threads && data.total_with_threads > data.count) {
+                            html += ` + ${data.total_with_threads - data.count} הודעות מ-threads`;
+                        }
+                        html += `</small>`;
                     }
 
                     answerDiv.innerHTML = html;
