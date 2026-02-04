@@ -800,8 +800,11 @@
 
                     // Show mode info
                     if (data.mode === 'context_search') {
-                        html += `<br><br><small style="color:#91979e;">🧠 Context Mode: Read ${data.context_messages} messages`;
+                        html += `<br><br><small style="color:#91979e;">🧠 Hybrid Search: Read ${data.context_messages} messages`;
                         if (data.context_user) html += ` from "${data.context_user}"`;
+                        if (data.keywords_used && data.keywords_used.length > 0) {
+                            html += `<br>🔑 Keywords: ${data.keywords_used.slice(0, 5).join(', ')}`;
+                        }
                         html += `</small>`;
                     } else if (data.sql) {
                         html += `<br><br><small style="color:#91979e;">🔍 SQL Mode: Found ${data.count || 0} results</small>`;

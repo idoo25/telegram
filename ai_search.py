@@ -250,37 +250,93 @@ If showing a list, format it nicely. Keep it brief but informative."""
 
     def context_search(self, query: str, user_name: str = None) -> Dict[str, Any]:
         """
-        Context-aware search - retrieves messages and lets AI reason over them.
+        Hybrid context-aware search - combines FTS5 keyword search with AI reasoning.
 
-        This is for questions that require understanding context, not just keyword matching.
-        Example: "באיזה בית חולים האחות עובדת?" - AI reads her messages and infers the answer.
+        1. AI extracts user name and relevant keywords from query
+        2. FTS5 finds messages matching keywords (fast, searches ALL messages)
+        3. AI reads relevant messages and reasons to find the answer
+
+        Example: "באיזה בית חולים האחות עובדת?"
+        - Extracts: user="האחות", keywords=["בית חולים", "עבודה", "מחלקה", "סורוקה", ...]
+        - FTS5 finds messages from האחות containing these keywords
+        - AI reads and infers the answer
         """
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
 
-        # If no user specified, try to extract from query
-        if not user_name:
-            # Ask AI to extract the user name from the question
-            extract_prompt = f"""Extract the user name from this question. Return ONLY the name, nothing else.
-If no specific user is mentioned, return "NONE".
+        # Step 1: AI extracts user name AND relevant keywords
+        extract_prompt = f"""Analyze this question and extract:
+1. USER_NAME: The specific person being asked about (or NONE if not about a specific person)
+2. KEYWORDS: Hebrew keywords to search for in their messages (related to the question topic)
 
 Question: {query}
 
-User name:"""
+Return in this exact format (one per line):
+USER_NAME: <name or NONE>
+KEYWORDS: <comma-separated keywords in Hebrew>
 
-            if self.provider == "gemini":
-                user_name = self._call_gemini(extract_prompt).strip()
-            elif self.provider == "groq":
-                user_name = self._call_groq(extract_prompt).strip()
-            else:
-                user_name = self._call_ollama(extract_prompt).strip()
+Example for "באיזה בית חולים האחות עובדת?":
+USER_NAME: האחות
+KEYWORDS: בית חולים, עבודה, מחלקה, סורוקה, רמבם, איכילוב, שיבא, הדסה, טיפול נמרץ, אחות
 
-            if user_name.upper() == "NONE" or len(user_name) > 50:
-                user_name = None
+Extract:"""
 
-        # Get messages for context
-        if user_name:
-            # Get messages from this specific user
+        if self.provider == "gemini":
+            extraction = self._call_gemini(extract_prompt).strip()
+        elif self.provider == "groq":
+            extraction = self._call_groq(extract_prompt).strip()
+        else:
+            extraction = self._call_ollama(extract_prompt).strip()
+
+        # Parse extraction
+        user_name = None
+        keywords = []
+        for line in extraction.split('\n'):
+            if line.startswith('USER_NAME:'):
+                name = line.replace('USER_NAME:', '').strip()
+                if name.upper() != 'NONE' and len(name) < 50:
+                    user_name = name
+            elif line.startswith('KEYWORDS:'):
+                kw_str = line.replace('KEYWORDS:', '').strip()
+                keywords = [k.strip() for k in kw_str.split(',') if k.strip()]
+
+        messages = []
+
+        # Step 2: Hybrid retrieval - FTS5 keyword search + recent messages
+        if user_name and keywords:
+            # Build FTS5 query for keywords
+            fts_query = ' OR '.join(keywords[:10])  # Limit to 10 keywords
+
+            # Search for messages from user containing keywords
+            cursor = conn.execute("""
+                SELECT date, from_name, text_plain as text
+                FROM messages
+                WHERE from_name LIKE ?
+                AND id IN (SELECT id FROM messages_fts WHERE messages_fts MATCH ?)
+                ORDER BY date DESC
+                LIMIT 100
+            """, (f"%{user_name}%", fts_query))
+            messages = [dict(row) for row in cursor.fetchall()]
+
+            # Also add some recent messages for context (might contain relevant info without keywords)
+            cursor = conn.execute("""
+                SELECT date, from_name, text_plain as text
+                FROM messages
+                WHERE from_name LIKE ?
+                ORDER BY date DESC
+                LIMIT 50
+            """, (f"%{user_name}%",))
+            recent = [dict(row) for row in cursor.fetchall()]
+
+            # Combine and deduplicate
+            seen_texts = {m['text'] for m in messages if m['text']}
+            for m in recent:
+                if m['text'] and m['text'] not in seen_texts:
+                    messages.append(m)
+                    seen_texts.add(m['text'])
+
+        elif user_name:
+            # No keywords, just get user's messages
             cursor = conn.execute("""
                 SELECT date, from_name, text_plain as text
                 FROM messages
@@ -288,8 +344,22 @@ User name:"""
                 ORDER BY date DESC
                 LIMIT 200
             """, (f"%{user_name}%",))
+            messages = [dict(row) for row in cursor.fetchall()]
+
+        elif keywords:
+            # No user, search all messages for keywords
+            fts_query = ' OR '.join(keywords[:10])
+            cursor = conn.execute("""
+                SELECT date, from_name, text_plain as text
+                FROM messages
+                WHERE id IN (SELECT id FROM messages_fts WHERE messages_fts MATCH ?)
+                ORDER BY date DESC
+                LIMIT 100
+            """, (fts_query,))
+            messages = [dict(row) for row in cursor.fetchall()]
+
         else:
-            # Get recent messages for general context
+            # Fallback: recent messages
             cursor = conn.execute("""
                 SELECT date, from_name, text_plain as text
                 FROM messages
@@ -297,35 +367,37 @@ User name:"""
                 ORDER BY date DESC
                 LIMIT 100
             """)
+            messages = [dict(row) for row in cursor.fetchall()]
 
-        messages = [dict(row) for row in cursor.fetchall()]
         conn.close()
 
         if not messages:
             return {
                 "query": query,
                 "answer": "לא נמצאו הודעות רלוונטיות",
-                "context_messages": 0
+                "context_messages": 0,
+                "keywords_used": keywords,
+                "mode": "context_search"
             }
 
-        # Build context for AI
+        # Step 3: AI reasons over the retrieved messages
         context_text = "\n".join([
             f"[{m['date']}] {m['from_name']}: {m['text'][:500]}"
             for m in messages if m['text']
         ])
 
-        # Ask AI to reason over the context
         reason_prompt = f"""You are analyzing a Telegram chat history to answer a question.
 Read the messages carefully and infer the answer from context clues.
 The user may not have stated things directly - look for hints, mentions, and implications.
 
 Question: {query}
 
-Chat messages (most recent first):
+Chat messages (sorted by relevance and date):
 {context_text}
 
 Based on these messages, answer the question in Hebrew.
 If you can infer information (like workplace, location, profession) from context clues, do so.
+Cite specific messages when possible.
 If you truly cannot find any relevant information, say so.
 
 Answer:"""
@@ -342,6 +414,7 @@ Answer:"""
             "answer": answer,
             "context_user": user_name,
             "context_messages": len(messages),
+            "keywords_used": keywords,
             "mode": "context_search"
         }
 
