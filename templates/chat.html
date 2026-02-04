@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat View - Telegram Analytics</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        /* Chat-specific styles */
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 140px);
+            background: var(--bg-dark);
+        }
+
+        .chat-header-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--spacing-md);
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border-color);
+            gap: var(--spacing-md);
+            flex-wrap: wrap;
+        }
+
+        .chat-filters {
+            display: flex;
+            gap: var(--spacing-sm);
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .chat-search {
+            flex: 1;
+            min-width: 200px;
+            max-width: 400px;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: var(--spacing-lg);
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-sm);
+        }
+
+        .message-bubble {
+            max-width: 70%;
+            padding: var(--spacing-sm) var(--spacing-md);
+            border-radius: var(--radius-lg);
+            position: relative;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message-bubble.outgoing {
+            background: var(--primary);
+            color: white;
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+        }
+
+        .message-bubble.incoming {
+            background: var(--bg-card);
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: var(--spacing-xs);
+            gap: var(--spacing-md);
+        }
+
+        .message-author {
+            font-weight: 600;
+            font-size: 0.875rem;
+            color: var(--primary-light);
+            cursor: pointer;
+        }
+
+        .message-bubble.outgoing .message-author {
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .message-time {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+        }
+
+        .message-bubble.outgoing .message-time {
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .message-text {
+            line-height: 1.5;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+
+        .message-reply {
+            background: rgba(0, 0, 0, 0.2);
+            padding: var(--spacing-xs) var(--spacing-sm);
+            border-radius: var(--radius-sm);
+            margin-bottom: var(--spacing-xs);
+            border-right: 3px solid var(--primary);
+            cursor: pointer;
+        }
+
+        .message-reply:hover {
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        .message-reply-author {
+            font-weight: 600;
+            font-size: 0.75rem;
+            color: var(--primary-light);
+        }
+
+        .message-reply-text {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 300px;
+        }
+
+        .message-media {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            padding: var(--spacing-xs);
+            background: rgba(0, 0, 0, 0.1);
+            border-radius: var(--radius-sm);
+            margin-top: var(--spacing-xs);
+        }
+
+        .message-media-icon {
+            font-size: 1.5rem;
+        }
+
+        .message-forward {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: var(--spacing-xs);
+            font-style: italic;
+        }
+
+        .message-link {
+            color: var(--primary-light);
+            text-decoration: underline;
+        }
+
+        .message-bubble.outgoing .message-link {
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .message-actions {
+            display: none;
+            position: absolute;
+            top: -30px;
+            left: 0;
+            background: var(--bg-card);
+            border-radius: var(--radius-md);
+            padding: var(--spacing-xs);
+            gap: var(--spacing-xs);
+            border: 1px solid var(--border-color);
+        }
+
+        .message-bubble:hover .message-actions {
+            display: flex;
+        }
+
+        .message-action-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: var(--spacing-xs);
+            border-radius: var(--radius-sm);
+            font-size: 0.875rem;
+        }
+
+        .message-action-btn:hover {
+            background: var(--border-color);
+        }
+
+        .date-divider {
+            text-align: center;
+            margin: var(--spacing-md) 0;
+            position: relative;
+        }
+
+        .date-divider span {
+            background: var(--bg-dark);
+            padding: var(--spacing-xs) var(--spacing-md);
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+        }
+
+        .load-more {
+            text-align: center;
+            padding: var(--spacing-md);
+        }
+
+        /* Thread view modal */
+        .thread-modal {
+            max-width: 700px;
+        }
+
+        .thread-messages {
+            max-height: 60vh;
+            overflow-y: auto;
+            padding: var(--spacing-md);
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-sm);
+        }
+
+        .thread-message {
+            padding: var(--spacing-sm) var(--spacing-md);
+            background: var(--bg-sidebar);
+            border-radius: var(--radius-md);
+        }
+
+        .thread-message.root {
+            background: var(--primary);
+            color: white;
+        }
+
+        /* AI Search */
+        .ai-search-container {
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-lg);
+            margin-bottom: var(--spacing-lg);
+            border: 1px solid var(--border-color);
+        }
+
+        .ai-search-box {
+            display: flex;
+            gap: var(--spacing-md);
+        }
+
+        .ai-search-input {
+            flex: 1;
+            padding: var(--spacing-md);
+            font-size: 1rem;
+        }
+
+        .ai-answer {
+            margin-top: var(--spacing-lg);
+            padding: var(--spacing-md);
+            background: var(--bg-sidebar);
+            border-radius: var(--radius-md);
+            border-right: 3px solid var(--primary);
+        }
+
+        .ai-answer-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: var(--spacing-sm);
+        }
+
+        .ai-answer-text {
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+
+        .ai-sql {
+            margin-top: var(--spacing-sm);
+            padding: var(--spacing-sm);
+            background: var(--bg-dark);
+            border-radius: var(--radius-sm);
+            font-family: monospace;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            overflow-x: auto;
+        }
+
+        /* Highlight for search */
+        .highlight {
+            background: rgba(255, 193, 7, 0.4);
+            padding: 0 2px;
+            border-radius: 2px;
+        }
+
+        /* Jump to message animation */
+        .message-bubble.highlighted {
+            animation: highlight 2s ease;
+        }
+
+        @keyframes highlight {
+            0%, 100% { box-shadow: none; }
+            50% { box-shadow: 0 0 20px var(--primary); }
+        }
+
+        /* User filter chips */
+        .filter-chips {
+            display: flex;
+            gap: var(--spacing-sm);
+            flex-wrap: wrap;
+        }
+
+        .filter-chip {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-xs);
+            padding: var(--spacing-xs) var(--spacing-sm);
+            background: var(--bg-sidebar);
+            border-radius: var(--radius-md);
+            font-size: 0.75rem;
+        }
+
+        .filter-chip-remove {
+            cursor: pointer;
+            opacity: 0.7;
+        }
+
+        .filter-chip-remove:hover {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <nav class="sidebar">
+        <div class="logo">
+            <span class="logo-icon">📊</span>
+            <span class="logo-text">TG Analytics</span>
+        </div>
+        <ul class="nav-menu">
+            <li class="nav-item">
+                <a href="/" class="nav-link">
+                    <span class="icon">📈</span>
+                    <span>Overview</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/users" class="nav-link">
+                    <span class="icon">👥</span>
+                    <span>Users</span>
+                </a>
+            </li>
+            <li class="nav-item active">
+                <a href="/chat" class="nav-link">
+                    <span class="icon">💬</span>
+                    <span>Chat</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/search" class="nav-link">
+                    <span class="icon">🔍</span>
+                    <span>Search</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/moderation" class="nav-link">
+                    <span class="icon">🛡️</span>
+                    <span>Moderation</span>
+                </a>
+            </li>
+        </ul>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Header -->
+        <header class="header">
+            <h1>💬 Chat View</h1>
+            <div class="header-controls">
+                <span id="message-count" style="color: var(--text-muted);">Loading...</span>
+            </div>
+        </header>
+
+        <!-- AI Search -->
+        <section class="ai-search-container">
+            <h3 style="margin-bottom: var(--spacing-md);">🤖 AI Search - שאל שאלות על הצ'אט</h3>
+            <div class="ai-search-box">
+                <input type="text" id="ai-query" class="ai-search-input"
+                       placeholder="שאל שאלה... למשל: מי כתב הכי הרבה הודעות? מתי דיברו על X? מי ענה למשה?"
+                       onkeypress="if(event.key==='Enter') aiSearch()">
+                <button onclick="aiSearch()" class="btn btn-primary">🔍 חפש</button>
+            </div>
+            <div id="ai-result" style="display: none;">
+                <div class="ai-answer">
+                    <div class="ai-answer-label">🤖 תשובה:</div>
+                    <div class="ai-answer-text" id="ai-answer-text"></div>
+                    <details>
+                        <summary style="cursor: pointer; color: var(--text-muted); font-size: 0.75rem; margin-top: var(--spacing-sm);">
+                            הצג SQL
+                        </summary>
+                        <div class="ai-sql" id="ai-sql"></div>
+                    </details>
+                </div>
+            </div>
+        </section>
+
+        <!-- Chat Container -->
+        <section class="chat-container">
+            <!-- Chat Header/Filters -->
+            <div class="chat-header-bar">
+                <div class="chat-search">
+                    <input type="search" id="chat-search" placeholder="🔍 חפש הודעות..."
+                           onkeypress="if(event.key==='Enter') applyFilters()">
+                </div>
+                <div class="chat-filters">
+                    <select id="user-filter" class="select-sm" onchange="applyFilters()">
+                        <option value="">כל המשתמשים</option>
+                    </select>
+                    <select id="media-filter" class="select-sm" onchange="applyFilters()">
+                        <option value="">הכל</option>
+                        <option value="media">עם מדיה</option>
+                        <option value="links">עם קישורים</option>
+                        <option value="text">טקסט בלבד</option>
+                    </select>
+                    <input type="date" id="date-from" class="select-sm" onchange="applyFilters()">
+                    <input type="date" id="date-to" class="select-sm" onchange="applyFilters()">
+                    <button onclick="clearFilters()" class="btn btn-sm">נקה</button>
+                </div>
+                <div class="filter-chips" id="filter-chips"></div>
+            </div>
+
+            <!-- Messages -->
+            <div class="chat-messages" id="chat-messages">
+                <div class="load-more" id="load-more-top">
+                    <button onclick="loadMoreTop()" class="btn btn-sm">טען הודעות ישנות</button>
+                </div>
+                <div class="loading" id="loading">
+                    <div class="spinner"></div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Thread Modal -->
+    <div class="modal-overlay" id="thread-modal">
+        <div class="modal thread-modal">
+            <div class="modal-header">
+                <h2>🧵 Thread</h2>
+                <button class="modal-close" onclick="closeThreadModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="thread-messages" id="thread-messages"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let messages = [];
+        let currentOffset = 0;
+        const pageSize = 50;
+        let filters = {};
+        let users = [];
+        let searchTerm = '';
+        let isLoading = false;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', async () => {
+            await loadUsers();
+            await loadMessages();
+            setupInfiniteScroll();
+        });
+
+        async function loadUsers() {
+            try {
+                const response = await fetch('/api/users?limit=100');
+                const data = await response.json();
+                users = data.users;
+
+                const select = document.getElementById('user-filter');
+                users.forEach(user => {
+                    const option = document.createElement('option');
+                    option.value = user.user_id;
+                    option.textContent = `${user.name} (${user.messages})`;
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Error loading users:', error);
+            }
+        }
+
+        async function loadMessages(append = false) {
+            if (isLoading) return;
+            isLoading = true;
+
+            const loading = document.getElementById('loading');
+            loading.style.display = 'flex';
+
+            try {
+                const params = new URLSearchParams({
+                    offset: currentOffset,
+                    limit: pageSize
+                });
+
+                // Add filters
+                const search = document.getElementById('chat-search').value;
+                if (search) params.append('search', search);
+
+                const userFilter = document.getElementById('user-filter').value;
+                if (userFilter) params.append('user_id', userFilter);
+
+                const mediaFilter = document.getElementById('media-filter').value;
+                if (mediaFilter === 'media') params.append('has_media', '1');
+                else if (mediaFilter === 'links') params.append('has_link', '1');
+                else if (mediaFilter === 'text') params.append('has_media', '0');
+
+                const dateFrom = document.getElementById('date-from').value;
+                if (dateFrom) params.append('date_from', dateFrom);
+
+                const dateTo = document.getElementById('date-to').value;
+                if (dateTo) params.append('date_to', dateTo + 'T23:59:59');
+
+                const response = await fetch(`/api/chat/messages?${params}`);
+                const data = await response.json();
+
+                if (append) {
+                    messages = [...messages, ...data.messages];
+                } else {
+                    messages = data.messages;
+                }
+
+                renderMessages();
+                document.getElementById('message-count').textContent =
+                    `${data.total.toLocaleString()} הודעות`;
+
+                // Update load more button
+                document.getElementById('load-more-top').style.display =
+                    data.has_more ? 'block' : 'none';
+
+            } catch (error) {
+                console.error('Error loading messages:', error);
+            } finally {
+                loading.style.display = 'none';
+                isLoading = false;
+            }
+        }
+
+        function renderMessages() {
+            const container = document.getElementById('chat-messages');
+            const search = document.getElementById('chat-search').value.toLowerCase();
+
+            // Keep load more button
+            let html = '<div class="load-more" id="load-more-top"><button onclick="loadMoreTop()" class="btn btn-sm">טען הודעות ישנות</button></div>';
+
+            let lastDate = '';
+
+            // Reverse for chronological order (oldest first)
+            const chronoMessages = [...messages].reverse();
+
+            chronoMessages.forEach((msg, i) => {
+                const msgDate = new Date(msg.date).toLocaleDateString('he-IL');
+
+                // Add date divider
+                if (msgDate !== lastDate) {
+                    html += `<div class="date-divider"><span>${msgDate}</span></div>`;
+                    lastDate = msgDate;
+                }
+
+                html += renderMessage(msg, search);
+            });
+
+            container.innerHTML = html;
+
+            // Scroll to bottom on initial load
+            if (currentOffset === 0) {
+                container.scrollTop = container.scrollHeight;
+            }
+        }
+
+        function renderMessage(msg, search = '') {
+            const time = new Date(msg.date).toLocaleTimeString('he-IL', {
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+
+            // Determine if outgoing (first user is "outgoing")
+            const isOutgoing = users.length > 0 && msg.from_id === users[0].user_id;
+
+            let text = escapeHtml(msg.text || '');
+
+            // Highlight search terms
+            if (search) {
+                const regex = new RegExp(`(${escapeRegex(search)})`, 'gi');
+                text = text.replace(regex, '<span class="highlight">$1</span>');
+            }
+
+            // Convert URLs to links
+            text = text.replace(
+                /(https?:\/\/[^\s]+)/g,
+                '<a href="$1" target="_blank" class="message-link">$1</a>'
+            );
+
+            let replyHtml = '';
+            if (msg.reply_to_message_id && msg.reply_to_name) {
+                replyHtml = `
+                    <div class="message-reply" onclick="showThread(${msg.reply_to_message_id})">
+                        <div class="message-reply-author">${escapeHtml(msg.reply_to_name)}</div>
+                        <div class="message-reply-text">${escapeHtml(msg.reply_to_text || '').substring(0, 100)}</div>
+                    </div>
+                `;
+            }
+
+            let forwardHtml = '';
+            if (msg.forwarded_from) {
+                forwardHtml = `<div class="message-forward">↪️ Forwarded from ${escapeHtml(msg.forwarded_from)}</div>`;
+            }
+
+            let mediaHtml = '';
+            if (msg.media_type) {
+                const icons = {
+                    'photo': '🖼️',
+                    'video': '🎥',
+                    'document': '📄',
+                    'audio': '🎵',
+                    'voice': '🎤',
+                    'sticker': '🎨',
+                    'animation': '🎬'
+                };
+                mediaHtml = `
+                    <div class="message-media">
+                        <span class="message-media-icon">${icons[msg.media_type] || '📎'}</span>
+                        <span>${msg.media_type}</span>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="message-bubble ${isOutgoing ? 'outgoing' : 'incoming'}"
+                     id="msg-${msg.message_id}" data-message-id="${msg.message_id}">
+                    <div class="message-actions">
+                        <button class="message-action-btn" onclick="showThread(${msg.message_id})" title="View Thread">🧵</button>
+                        <button class="message-action-btn" onclick="jumpToContext(${msg.message_id})" title="Show Context">📍</button>
+                        <button class="message-action-btn" onclick="filterByUser('${msg.from_id}')" title="Filter by User">👤</button>
+                    </div>
+                    ${forwardHtml}
+                    ${replyHtml}
+                    <div class="message-header">
+                        <span class="message-author" onclick="filterByUser('${msg.from_id}')">${escapeHtml(msg.from_name || 'Unknown')}</span>
+                        <span class="message-time">${time}</span>
+                    </div>
+                    <div class="message-text">${text || '<em>No text</em>'}</div>
+                    ${mediaHtml}
+                </div>
+            `;
+        }
+
+        function applyFilters() {
+            currentOffset = 0;
+            loadMessages();
+            updateFilterChips();
+        }
+
+        function clearFilters() {
+            document.getElementById('chat-search').value = '';
+            document.getElementById('user-filter').value = '';
+            document.getElementById('media-filter').value = '';
+            document.getElementById('date-from').value = '';
+            document.getElementById('date-to').value = '';
+            applyFilters();
+        }
+
+        function filterByUser(userId) {
+            document.getElementById('user-filter').value = userId;
+            applyFilters();
+        }
+
+        function updateFilterChips() {
+            const chips = document.getElementById('filter-chips');
+            let html = '';
+
+            const search = document.getElementById('chat-search').value;
+            if (search) {
+                html += `<span class="filter-chip">🔍 ${search} <span class="filter-chip-remove" onclick="document.getElementById('chat-search').value=''; applyFilters();">×</span></span>`;
+            }
+
+            const userFilter = document.getElementById('user-filter');
+            if (userFilter.value) {
+                const userName = userFilter.options[userFilter.selectedIndex].text;
+                html += `<span class="filter-chip">👤 ${userName.split('(')[0].trim()} <span class="filter-chip-remove" onclick="document.getElementById('user-filter').value=''; applyFilters();">×</span></span>`;
+            }
+
+            chips.innerHTML = html;
+        }
+
+        function loadMoreTop() {
+            currentOffset += pageSize;
+            loadMessages(true);
+        }
+
+        function setupInfiniteScroll() {
+            const container = document.getElementById('chat-messages');
+
+            container.addEventListener('scroll', () => {
+                // Load more when scrolled near top
+                if (container.scrollTop < 100 && !isLoading) {
+                    loadMoreTop();
+                }
+            });
+        }
+
+        async function showThread(messageId) {
+            const modal = document.getElementById('thread-modal');
+            const container = document.getElementById('thread-messages');
+
+            modal.classList.add('active');
+            container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+            try {
+                const response = await fetch(`/api/chat/thread/${messageId}`);
+                const thread = await response.json();
+
+                container.innerHTML = thread.map(msg => `
+                    <div class="thread-message ${msg.message_id === messageId ? 'root' : ''}">
+                        <div class="message-header">
+                            <strong>${escapeHtml(msg.from_name || 'Unknown')}</strong>
+                            <span style="font-size: 0.75rem; color: var(--text-muted);">
+                                ${new Date(msg.date).toLocaleString('he-IL')}
+                            </span>
+                        </div>
+                        <div style="margin-top: var(--spacing-xs);">${escapeHtml(msg.text || '')}</div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                container.innerHTML = '<div class="empty-state">Error loading thread</div>';
+            }
+        }
+
+        function closeThreadModal() {
+            document.getElementById('thread-modal').classList.remove('active');
+        }
+
+        async function jumpToContext(messageId) {
+            try {
+                const response = await fetch(`/api/chat/context/${messageId}`);
+                const data = await response.json();
+
+                messages = data.messages;
+                renderMessages();
+
+                // Highlight target message
+                setTimeout(() => {
+                    const target = document.getElementById(`msg-${messageId}`);
+                    if (target) {
+                        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        target.classList.add('highlighted');
+                    }
+                }, 100);
+            } catch (error) {
+                console.error('Error loading context:', error);
+            }
+        }
+
+        // AI Search
+        async function aiSearch() {
+            const query = document.getElementById('ai-query').value;
+            if (!query.trim()) return;
+
+            const resultDiv = document.getElementById('ai-result');
+            const answerText = document.getElementById('ai-answer-text');
+            const sqlDiv = document.getElementById('ai-sql');
+
+            resultDiv.style.display = 'block';
+            answerText.textContent = 'מחפש...';
+            sqlDiv.textContent = '';
+
+            try {
+                const response = await fetch('/api/ai/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query })
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    answerText.textContent = `שגיאה: ${data.error}`;
+                } else {
+                    answerText.textContent = data.answer || 'לא נמצאה תשובה';
+                    sqlDiv.textContent = data.sql || '';
+
+                    // If results are messages, optionally show them
+                    if (data.results && data.results.length > 0 && data.results[0].message_id) {
+                        // Could offer to display these messages
+                    }
+                }
+            } catch (error) {
+                answerText.textContent = `שגיאה: ${error.message}`;
+            }
+        }
+
+        // Helper functions
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function escapeRegex(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        // Close modal on outside click
+        document.getElementById('thread-modal').addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal-overlay')) {
+                closeThreadModal();
+            }
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeThreadModal();
+            }
+        });
+    </script>
+</body>
+</html>

@@ -26,6 +26,12 @@
                     <span>Users</span>
                 </a>
             </li>
+            <li class="nav-item">
+                <a href="/chat" class="nav-link">
+                    <span class="icon">💬</span>
+                    <span>Chat</span>
+                </a>
+            </li>
             <li class="nav-item active">
                 <a href="/search" class="nav-link">
                     <span class="icon">🔍</span>
@@ -62,6 +68,34 @@
                 </select>
             </div>
         </header>
+
+        <!-- AI Search Section -->
+        <section class="chart-card" style="margin-bottom: var(--spacing-xl); border: 2px solid var(--primary);">
+            <div class="chart-header">
+                <h3>🤖 AI Search - שאל שאלות בשפה טבעית</h3>
+            </div>
+            <div style="padding: var(--spacing-md);">
+                <div style="display: flex; gap: var(--spacing-md); margin-bottom: var(--spacing-md);">
+                    <input type="text" id="ai-query" style="flex: 1; padding: var(--spacing-md); font-size: 1rem;"
+                           placeholder="שאל שאלה... למשל: מי כתב הכי הרבה? מתי דיברו על X? מי הכי פעיל בלילה?"
+                           onkeypress="if(event.key==='Enter') aiSearch()">
+                    <button onclick="aiSearch()" class="btn btn-primary" style="padding: var(--spacing-md) var(--spacing-lg);">
+                        🤖 שאל AI
+                    </button>
+                </div>
+                <div id="ai-result" style="display: none; padding: var(--spacing-md); background: var(--bg-sidebar); border-radius: var(--radius-md); border-right: 3px solid var(--primary);">
+                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: var(--spacing-sm);">🤖 תשובה:</div>
+                    <div id="ai-answer" style="line-height: 1.6; white-space: pre-wrap;"></div>
+                    <details style="margin-top: var(--spacing-sm);">
+                        <summary style="cursor: pointer; color: var(--text-muted); font-size: 0.75rem;">הצג SQL</summary>
+                        <pre id="ai-sql" style="font-size: 0.75rem; margin-top: var(--spacing-sm); overflow-x: auto; background: var(--bg-dark); padding: var(--spacing-sm); border-radius: var(--radius-sm);"></pre>
+                    </details>
+                </div>
+                <div style="margin-top: var(--spacing-sm); font-size: 0.75rem; color: var(--text-muted);">
+                    💡 דוגמאות: "מי שלח הכי הרבה קישורים?" | "מתי היו הכי הרבה הודעות?" | "הראה את ההודעות של משה מהשבוע האחרון"
+                </div>
+            </div>
+        </section>
 
         <!-- Search Box -->
         <section class="search-box">
@@ -253,6 +287,64 @@
         function exportMessages() {
             const timeframe = document.getElementById('timeframe').value;
             window.location.href = `/api/export/messages?timeframe=${timeframe}`;
+        }
+
+        // AI Search
+        async function aiSearch() {
+            const query = document.getElementById('ai-query').value.trim();
+            if (!query) return;
+
+            const resultDiv = document.getElementById('ai-result');
+            const answerDiv = document.getElementById('ai-answer');
+            const sqlPre = document.getElementById('ai-sql');
+
+            resultDiv.style.display = 'block';
+            answerDiv.textContent = 'מחפש...';
+            sqlPre.textContent = '';
+
+            try {
+                const response = await fetch('/api/ai/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query })
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    answerDiv.textContent = `שגיאה: ${data.error}`;
+                } else {
+                    answerDiv.textContent = data.answer || 'לא נמצאה תשובה';
+                    sqlPre.textContent = data.sql || '';
+
+                    // If results contain messages, optionally populate main search
+                    if (data.results && data.results.length > 0 && data.results[0].text) {
+                        displayAIResults(data.results);
+                    }
+                }
+            } catch (error) {
+                answerDiv.textContent = `שגיאה: ${error.message}`;
+            }
+        }
+
+        function displayAIResults(results) {
+            const resultsDiv = document.getElementById('search-results');
+
+            if (results.length === 0) return;
+
+            document.getElementById('search-stats').style.display = 'grid';
+            document.getElementById('result-count').textContent = results.length;
+            document.getElementById('search-time').textContent = 'AI';
+
+            resultsDiv.innerHTML = results.slice(0, 20).map(result => `
+                <div class="search-result-item">
+                    <div class="search-result-header">
+                        <span class="search-result-author">${escapeHtml(result.from_name || 'Unknown')}</span>
+                        <span class="search-result-date">${result.date || ''}</span>
+                    </div>
+                    <div class="search-result-text">${escapeHtml(result.text || '')}</div>
+                </div>
+            `).join('');
         }
 
         // Focus search input on page load

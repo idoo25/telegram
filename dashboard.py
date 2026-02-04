@@ -97,6 +97,12 @@ def search_page():
     return render_template('search.html')
 
 
+@app.route('/chat')
+def chat_page():
+    """Chat view page - Telegram-like interface."""
+    return render_template('chat.html')
+
+
 # ==========================================
 # API ENDPOINTS - OVERVIEW STATS
 # ==========================================
@@ -677,6 +683,335 @@ def api_search():
         'limit': limit,
         'offset': offset
     })
+
+
+# ==========================================
+# API ENDPOINTS - CHAT VIEW
+# ==========================================
+
+@app.route('/api/chat/messages')
+def api_chat_messages():
+    """Get messages for chat view with filters."""
+    offset = int(request.args.get('offset', 0))
+    limit = int(request.args.get('limit', 50))
+    user_id = request.args.get('user_id')
+    search = request.args.get('search')
+    date_from = request.args.get('date_from')
+    date_to = request.args.get('date_to')
+    has_media = request.args.get('has_media')
+    has_link = request.args.get('has_link')
+
+    conn = get_db()
+
+    # Build query
+    conditions = ["1=1"]
+    params = []
+
+    if user_id:
+        conditions.append("m.from_id = ?")
+        params.append(user_id)
+
+    if date_from:
+        conditions.append("m.date >= ?")
+        params.append(date_from)
+
+    if date_to:
+        conditions.append("m.date <= ?")
+        params.append(date_to)
+
+    if has_media == '1':
+        conditions.append("m.has_media = 1")
+    elif has_media == '0':
+        conditions.append("m.has_media = 0")
+
+    if has_link == '1':
+        conditions.append("m.has_links = 1")
+
+    # Handle FTS search
+    if search:
+        conditions.append("""m.id IN (
+            SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?
+        )""")
+        params.append(search)
+
+    where_clause = " AND ".join(conditions)
+
+    # Get total count
+    cursor = conn.execute(f"SELECT COUNT(*) FROM messages m WHERE {where_clause}", params)
+    total = cursor.fetchone()[0]
+
+    # Get messages with reply info
+    query = f"""
+        SELECT
+            m.id,
+            m.message_id,
+            m.date,
+            m.from_id,
+            m.from_name,
+            m.text_plain as text,
+            m.reply_to_message_id,
+            m.forwarded_from,
+            m.media_type,
+            m.has_links as has_link,
+            r.from_name as reply_to_name,
+            substr(r.text_plain, 1, 100) as reply_to_text
+        FROM messages m
+        LEFT JOIN messages r ON m.reply_to_message_id = r.message_id
+        WHERE {where_clause}
+        ORDER BY m.date DESC
+        LIMIT ? OFFSET ?
+    """
+    params.extend([limit, offset])
+
+    cursor = conn.execute(query, params)
+    messages = [dict(row) for row in cursor.fetchall()]
+
+    conn.close()
+
+    return jsonify({
+        'messages': messages,
+        'total': total,
+        'offset': offset,
+        'limit': limit,
+        'has_more': offset + limit < total
+    })
+
+
+@app.route('/api/chat/thread/<int:message_id>')
+def api_chat_thread(message_id):
+    """Get conversation thread for a message."""
+    conn = get_db()
+    thread = []
+    visited = set()
+
+    def get_parent(msg_id):
+        """Recursively get parent messages."""
+        if msg_id in visited:
+            return
+        visited.add(msg_id)
+
+        cursor = conn.execute("""
+            SELECT message_id, date, from_name, text_plain as text, reply_to_message_id
+            FROM messages WHERE message_id = ?
+        """, (msg_id,))
+        row = cursor.fetchone()
+
+        if row:
+            if row['reply_to_message_id']:
+                get_parent(row['reply_to_message_id'])
+            thread.append(dict(row))
+
+    def get_children(msg_id):
+        """Get all replies to a message."""
+        cursor = conn.execute("""
+            SELECT message_id, date, from_name, text_plain as text, reply_to_message_id
+            FROM messages WHERE reply_to_message_id = ?
+            ORDER BY date
+        """, (msg_id,))
+
+        for row in cursor.fetchall():
+            if row['message_id'] not in visited:
+                visited.add(row['message_id'])
+                thread.append(dict(row))
+                get_children(row['message_id'])
+
+    # Get the original message and its parents
+    get_parent(message_id)
+
+    # Get all replies
+    get_children(message_id)
+
+    conn.close()
+
+    # Sort by date
+    thread.sort(key=lambda x: x['date'])
+
+    return jsonify(thread)
+
+
+@app.route('/api/chat/context/<int:message_id>')
+def api_chat_context(message_id):
+    """Get messages around a specific message."""
+    before = int(request.args.get('before', 20))
+    after = int(request.args.get('after', 20))
+
+    conn = get_db()
+
+    # Get target message date
+    cursor = conn.execute("SELECT date FROM messages WHERE message_id = ?", (message_id,))
+    row = cursor.fetchone()
+
+    if not row:
+        conn.close()
+        return jsonify({'messages': [], 'target_id': message_id})
+
+    target_date = row['date']
+
+    # Get messages before
+    cursor = conn.execute("""
+        SELECT message_id, date, from_id, from_name, text_plain as text,
+               reply_to_message_id, media_type, has_links as has_link
+        FROM messages
+        WHERE date < ?
+        ORDER BY date DESC
+        LIMIT ?
+    """, (target_date, before))
+    before_msgs = list(reversed([dict(row) for row in cursor.fetchall()]))
+
+    # Get target message
+    cursor = conn.execute("""
+        SELECT message_id, date, from_id, from_name, text_plain as text,
+               reply_to_message_id, media_type, has_links as has_link
+        FROM messages
+        WHERE message_id = ?
+    """, (message_id,))
+    target_msg = dict(cursor.fetchone())
+
+    # Get messages after
+    cursor = conn.execute("""
+        SELECT message_id, date, from_id, from_name, text_plain as text,
+               reply_to_message_id, media_type, has_links as has_link
+        FROM messages
+        WHERE date > ?
+        ORDER BY date ASC
+        LIMIT ?
+    """, (target_date, after))
+    after_msgs = [dict(row) for row in cursor.fetchall()]
+
+    conn.close()
+
+    return jsonify({
+        'messages': before_msgs + [target_msg] + after_msgs,
+        'target_id': message_id
+    })
+
+
+# ==========================================
+# API ENDPOINTS - AI SEARCH
+# ==========================================
+
+# Global AI engine (lazy loaded)
+ai_engine = None
+
+def get_ai_engine():
+    """Get or create AI search engine."""
+    global ai_engine
+    if ai_engine is None:
+        try:
+            from ai_search import AISearchEngine
+            import os
+
+            # Try providers in order of preference
+            provider = os.getenv('AI_PROVIDER', 'ollama')
+            api_key = os.getenv('AI_API_KEY')
+
+            ai_engine = AISearchEngine(DB_PATH, provider, api_key)
+        except Exception as e:
+            print(f"AI Search not available: {e}")
+            return None
+    return ai_engine
+
+
+@app.route('/api/ai/search', methods=['POST'])
+def api_ai_search():
+    """AI-powered natural language search."""
+    data = request.get_json()
+    query = data.get('query', '')
+
+    if not query:
+        return jsonify({'error': 'Query required'})
+
+    engine = get_ai_engine()
+
+    if engine is None:
+        # Fallback: Use basic SQL search
+        return fallback_ai_search(query)
+
+    try:
+        result = engine.search(query, generate_answer=True)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e), 'query': query})
+
+
+def fallback_ai_search(query: str):
+    """Fallback search when AI is not available."""
+    conn = get_db()
+
+    # Simple keyword extraction and search
+    keywords = [w for w in query.split() if len(w) > 2]
+
+    if not keywords:
+        return jsonify({'error': 'No valid keywords', 'query': query})
+
+    # Build FTS query
+    fts_query = ' OR '.join(keywords)
+
+    try:
+        cursor = conn.execute('''
+            SELECT
+                m.message_id, m.date, m.from_name, m.text_plain as text
+            FROM messages_fts
+            JOIN messages m ON messages_fts.rowid = m.id
+            WHERE messages_fts MATCH ?
+            ORDER BY m.date DESC
+            LIMIT 20
+        ''', (fts_query,))
+
+        results = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        # Generate simple answer
+        if results:
+            answer = f"נמצאו {len(results)} הודעות עם המילים: {', '.join(keywords)}"
+        else:
+            answer = f"לא נמצאו הודעות עם המילים: {', '.join(keywords)}"
+
+        return jsonify({
+            'query': query,
+            'sql': f"FTS MATCH: {fts_query}",
+            'results': results,
+            'count': len(results),
+            'answer': answer,
+            'fallback': True
+        })
+
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e), 'query': query})
+
+
+@app.route('/api/ai/thread/<int:message_id>')
+def api_ai_thread(message_id):
+    """Get full thread using AI-powered analysis."""
+    engine = get_ai_engine()
+
+    if engine is None:
+        # Use basic thread retrieval
+        return api_chat_thread(message_id)
+
+    try:
+        thread = engine.get_thread(message_id)
+        return jsonify(thread)
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+
+@app.route('/api/ai/similar/<int:message_id>')
+def api_ai_similar(message_id):
+    """Find similar messages."""
+    limit = int(request.args.get('limit', 10))
+
+    engine = get_ai_engine()
+
+    if engine is None:
+        return jsonify({'error': 'AI not available'})
+
+    try:
+        similar = engine.find_similar_messages(message_id, limit)
+        return jsonify(similar)
+    except Exception as e:
+        return jsonify({'error': str(e)})
 
 
 # ==========================================
