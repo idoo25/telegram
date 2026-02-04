@@ -301,6 +301,11 @@ Extract:"""
                 keywords = [k.strip() for k in kw_str.split(',') if k.strip()]
 
         messages = []
+        user_profile = None
+
+        # Get SQL-based user profile (FREE - no AI tokens)
+        if user_name:
+            user_profile = self._get_user_profile_sql(conn, user_name)
 
         # Step 2: Hybrid retrieval - FTS5 keyword search + recent messages
         if user_name and keywords:
@@ -371,7 +376,7 @@ Extract:"""
 
         conn.close()
 
-        if not messages:
+        if not messages and not user_profile:
             return {
                 "query": query,
                 "answer": "לא נמצאו הודעות רלוונטיות",
@@ -380,24 +385,42 @@ Extract:"""
                 "mode": "context_search"
             }
 
-        # Step 3: AI reasons over the retrieved messages
-        context_text = "\n".join([
-            f"[{m['date']}] {m['from_name']}: {m['text'][:500]}"
-            for m in messages if m['text']
-        ])
+        # Step 3: Build context with profile + messages
+        context_parts = []
+
+        # Add user profile if available (FREE stats)
+        if user_profile:
+            context_parts.append(f"""User Profile for "{user_name}" (computed from statistics):
+- Total messages: {user_profile['total_messages']}
+- Active since: {user_profile['first_seen']}
+- Last active: {user_profile['last_seen']}
+- Most active hours: {user_profile['active_hours']}
+- Top words used: {', '.join(user_profile['top_words'][:10])}
+- Frequently mentioned: {', '.join(user_profile['top_mentions'][:5])}
+- Top domains shared: {', '.join(user_profile['top_domains'][:5])}
+- Interacts most with: {', '.join(user_profile['top_interactions'][:5])}
+""")
+
+        # Add messages
+        if messages:
+            context_parts.append("Chat messages (sorted by relevance):")
+            for m in messages:
+                if m['text']:
+                    context_parts.append(f"[{m['date']}] {m['from_name']}: {m['text'][:500]}")
+
+        context_text = "\n".join(context_parts)
 
         reason_prompt = f"""You are analyzing a Telegram chat history to answer a question.
-Read the messages carefully and infer the answer from context clues.
-The user may not have stated things directly - look for hints, mentions, and implications.
+You have access to user statistics and their messages.
+Read carefully and infer the answer from context clues.
 
 Question: {query}
 
-Chat messages (sorted by relevance and date):
 {context_text}
 
-Based on these messages, answer the question in Hebrew.
+Based on this information, answer the question in Hebrew.
 If you can infer information (like workplace, location, profession) from context clues, do so.
-Cite specific messages when possible.
+Cite specific evidence when possible.
 If you truly cannot find any relevant information, say so.
 
 Answer:"""
@@ -415,8 +438,120 @@ Answer:"""
             "context_user": user_name,
             "context_messages": len(messages),
             "keywords_used": keywords,
+            "user_profile": user_profile,
             "mode": "context_search"
         }
+
+    def _get_user_profile_sql(self, conn, user_name: str) -> Optional[Dict]:
+        """
+        Generate user profile from SQL statistics - NO AI tokens used!
+        """
+        cursor = conn.cursor()
+
+        # Basic stats
+        cursor.execute("""
+            SELECT
+                COUNT(*) as total,
+                MIN(date) as first_seen,
+                MAX(date) as last_seen
+            FROM messages
+            WHERE from_name LIKE ?
+        """, (f"%{user_name}%",))
+        row = cursor.fetchone()
+        if not row or row[0] == 0:
+            return None
+
+        profile = {
+            'total_messages': row[0],
+            'first_seen': row[1],
+            'last_seen': row[2],
+            'top_words': [],
+            'active_hours': '',
+            'top_mentions': [],
+            'top_domains': [],
+            'top_interactions': []
+        }
+
+        # Most active hours
+        cursor.execute("""
+            SELECT CAST(strftime('%H', date) AS INTEGER) as hour, COUNT(*) as cnt
+            FROM messages
+            WHERE from_name LIKE ?
+            GROUP BY hour
+            ORDER BY cnt DESC
+            LIMIT 3
+        """, (f"%{user_name}%",))
+        hours = [f"{r[0]}:00" for r in cursor.fetchall()]
+        profile['active_hours'] = ', '.join(hours) if hours else 'Unknown'
+
+        # Top words (from their messages)
+        cursor.execute("""
+            SELECT text_plain
+            FROM messages
+            WHERE from_name LIKE ? AND text_plain IS NOT NULL
+            ORDER BY date DESC
+            LIMIT 500
+        """, (f"%{user_name}%",))
+
+        word_count = {}
+        stop_words = {'את', 'של', 'על', 'עם', 'לא', 'כן', 'זה', 'הוא', 'היא', 'אני', 'אתה', 'מה', 'איך', 'למה', 'כי', 'גם', 'רק', 'עוד', 'או', 'אם', 'יש', 'אין', 'היה', 'הזה', 'טוב', 'the', 'and', 'is', 'to', 'a', 'in', 'that', 'it', 'of'}
+        for row in cursor.fetchall():
+            if row[0]:
+                words = row[0].split()
+                for w in words:
+                    w = w.strip('.,!?()[]{}":;')
+                    if len(w) > 2 and w.lower() not in stop_words:
+                        word_count[w] = word_count.get(w, 0) + 1
+
+        profile['top_words'] = sorted(word_count.keys(), key=lambda x: word_count[x], reverse=True)[:20]
+
+        # Top mentions (@username)
+        cursor.execute("""
+            SELECT text_plain
+            FROM messages
+            WHERE from_name LIKE ? AND text_plain LIKE '%@%'
+            LIMIT 200
+        """, (f"%{user_name}%",))
+
+        mention_count = {}
+        for row in cursor.fetchall():
+            if row[0]:
+                import re
+                mentions = re.findall(r'@(\w+)', row[0])
+                for m in mentions:
+                    mention_count[m] = mention_count.get(m, 0) + 1
+        profile['top_mentions'] = sorted(mention_count.keys(), key=lambda x: mention_count[x], reverse=True)[:10]
+
+        # Top domains shared
+        cursor.execute("""
+            SELECT text_plain
+            FROM messages
+            WHERE from_name LIKE ? AND has_links = 1
+            LIMIT 200
+        """, (f"%{user_name}%",))
+
+        domain_count = {}
+        for row in cursor.fetchall():
+            if row[0]:
+                import re
+                urls = re.findall(r'https?://(?:www\.)?([^/\s]+)', row[0])
+                for d in urls:
+                    domain_count[d] = domain_count.get(d, 0) + 1
+        profile['top_domains'] = sorted(domain_count.keys(), key=lambda x: domain_count[x], reverse=True)[:10]
+
+        # Who they interact with most (reply to)
+        cursor.execute("""
+            SELECT r.from_name, COUNT(*) as cnt
+            FROM messages m
+            JOIN messages r ON m.reply_to_message_id = r.id
+            WHERE m.from_name LIKE ? AND r.from_name IS NOT NULL
+            GROUP BY r.from_name
+            ORDER BY cnt DESC
+            LIMIT 10
+        """, (f"%{user_name}%",))
+        profile['top_interactions'] = [r[0] for r in cursor.fetchall()]
+
+        return profile
 
     def search(self, query: str, generate_answer: bool = True) -> Dict[str, Any]:
         """
