@@ -1,0 +1,814 @@
+#!/usr/bin/env python3
+"""
+Telegram Analytics Dashboard - Web Server
+
+A Flask-based web dashboard for visualizing Telegram chat analytics.
+Inspired by Combot and other Telegram statistics bots.
+
+Usage:
+    python dashboard.py --db telegram.db --port 5000
+    Then open http://localhost:5000 in your browser
+
+Requirements:
+    pip install flask
+"""
+
+import sqlite3
+import json
+import csv
+import io
+from datetime import datetime, timedelta
+from flask import Flask, render_template, jsonify, request, Response
+from typing import Optional
+from collections import defaultdict
+
+# Import our algorithms
+from algorithms import TopK, find_median, find_percentile, top_k_frequent
+
+app = Flask(__name__)
+DB_PATH = 'telegram.db'
+
+
+def get_db():
+    """Get database connection."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def parse_timeframe(timeframe: str) -> tuple[int, int]:
+    """Parse timeframe string to Unix timestamps."""
+    now = datetime.now()
+    today_start = datetime(now.year, now.month, now.day)
+
+    if timeframe == 'today':
+        start = today_start
+        end = now
+    elif timeframe == 'yesterday':
+        start = today_start - timedelta(days=1)
+        end = today_start
+    elif timeframe == 'week':
+        start = today_start - timedelta(days=7)
+        end = now
+    elif timeframe == 'month':
+        start = today_start - timedelta(days=30)
+        end = now
+    elif timeframe == 'year':
+        start = today_start - timedelta(days=365)
+        end = now
+    elif timeframe == 'all':
+        return 0, int(now.timestamp())
+    else:
+        # Custom range: "start,end" as Unix timestamps
+        try:
+            parts = timeframe.split(',')
+            return int(parts[0]), int(parts[1])
+        except:
+            return 0, int(now.timestamp())
+
+    return int(start.timestamp()), int(end.timestamp())
+
+
+# ==========================================
+# PAGE ROUTES
+# ==========================================
+
+@app.route('/')
+def index():
+    """Main dashboard page."""
+    return render_template('index.html')
+
+
+@app.route('/users')
+def users_page():
+    """User leaderboard page."""
+    return render_template('users.html')
+
+
+@app.route('/moderation')
+def moderation_page():
+    """Moderation analytics page."""
+    return render_template('moderation.html')
+
+
+@app.route('/search')
+def search_page():
+    """Search page."""
+    return render_template('search.html')
+
+
+# ==========================================
+# API ENDPOINTS - OVERVIEW STATS
+# ==========================================
+
+@app.route('/api/overview')
+def api_overview():
+    """Get overview statistics."""
+    timeframe = request.args.get('timeframe', 'all')
+    start_ts, end_ts = parse_timeframe(timeframe)
+
+    conn = get_db()
+
+    # Total messages
+    cursor = conn.execute('''
+        SELECT COUNT(*) FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+    ''', (start_ts, end_ts))
+    total_messages = cursor.fetchone()[0]
+
+    # Active users
+    cursor = conn.execute('''
+        SELECT COUNT(DISTINCT from_id) FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+    ''', (start_ts, end_ts))
+    active_users = cursor.fetchone()[0]
+
+    # Total users (all time)
+    cursor = conn.execute('SELECT COUNT(*) FROM users')
+    total_users = cursor.fetchone()[0]
+
+    # Date range
+    cursor = conn.execute('''
+        SELECT MIN(date_unixtime), MAX(date_unixtime) FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+    ''', (start_ts, end_ts))
+    row = cursor.fetchone()
+    first_msg = row[0] or start_ts
+    last_msg = row[1] or end_ts
+
+    # Calculate days
+    days = max(1, (last_msg - first_msg) // 86400)
+
+    # Messages per day
+    messages_per_day = total_messages / days
+
+    # Users per day (average unique users)
+    cursor = conn.execute('''
+        SELECT COUNT(DISTINCT from_id) as users,
+               date(datetime(date_unixtime, 'unixepoch')) as day
+        FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+        GROUP BY day
+    ''', (start_ts, end_ts))
+    daily_users = [r[0] for r in cursor.fetchall()]
+    users_per_day = sum(daily_users) / len(daily_users) if daily_users else 0
+
+    # Messages with media/links
+    cursor = conn.execute('''
+        SELECT
+            SUM(has_media) as media,
+            SUM(has_links) as links,
+            SUM(has_mentions) as mentions
+        FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+    ''', (start_ts, end_ts))
+    row = cursor.fetchone()
+    media_count = row[0] or 0
+    links_count = row[1] or 0
+    mentions_count = row[2] or 0
+
+    # Replies
+    cursor = conn.execute('''
+        SELECT COUNT(*) FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+        AND reply_to_message_id IS NOT NULL
+    ''', (start_ts, end_ts))
+    replies_count = cursor.fetchone()[0]
+
+    # Forwards
+    cursor = conn.execute('''
+        SELECT COUNT(*) FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+        AND forwarded_from IS NOT NULL
+    ''', (start_ts, end_ts))
+    forwards_count = cursor.fetchone()[0]
+
+    conn.close()
+
+    return jsonify({
+        'total_messages': total_messages,
+        'active_users': active_users,
+        'total_users': total_users,
+        'messages_per_day': round(messages_per_day, 1),
+        'users_per_day': round(users_per_day, 1),
+        'messages_per_user': round(total_messages / active_users, 1) if active_users else 0,
+        'media_count': media_count,
+        'links_count': links_count,
+        'mentions_count': mentions_count,
+        'replies_count': replies_count,
+        'forwards_count': forwards_count,
+        'days_span': days,
+        'first_message': first_msg,
+        'last_message': last_msg
+    })
+
+
+# ==========================================
+# API ENDPOINTS - CHARTS
+# ==========================================
+
+@app.route('/api/chart/messages')
+def api_chart_messages():
+    """Get message volume over time."""
+    timeframe = request.args.get('timeframe', 'month')
+    granularity = request.args.get('granularity', 'day')  # hour, day, week
+    start_ts, end_ts = parse_timeframe(timeframe)
+
+    conn = get_db()
+
+    if granularity == 'hour':
+        format_str = '%Y-%m-%d %H:00'
+    elif granularity == 'week':
+        format_str = '%Y-W%W'
+    else:  # day
+        format_str = '%Y-%m-%d'
+
+    cursor = conn.execute(f'''
+        SELECT
+            strftime('{format_str}', datetime(date_unixtime, 'unixepoch')) as period,
+            COUNT(*) as count
+        FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+        GROUP BY period
+        ORDER BY period
+    ''', (start_ts, end_ts))
+
+    data = [{'label': row[0], 'value': row[1]} for row in cursor.fetchall()]
+    conn.close()
+
+    return jsonify(data)
+
+
+@app.route('/api/chart/users')
+def api_chart_users():
+    """Get active users over time."""
+    timeframe = request.args.get('timeframe', 'month')
+    granularity = request.args.get('granularity', 'day')
+    start_ts, end_ts = parse_timeframe(timeframe)
+
+    conn = get_db()
+
+    if granularity == 'hour':
+        format_str = '%Y-%m-%d %H:00'
+    elif granularity == 'week':
+        format_str = '%Y-W%W'
+    else:
+        format_str = '%Y-%m-%d'
+
+    cursor = conn.execute(f'''
+        SELECT
+            strftime('{format_str}', datetime(date_unixtime, 'unixepoch')) as period,
+            COUNT(DISTINCT from_id) as count
+        FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+        GROUP BY period
+        ORDER BY period
+    ''', (start_ts, end_ts))
+
+    data = [{'label': row[0], 'value': row[1]} for row in cursor.fetchall()]
+    conn.close()
+
+    return jsonify(data)
+
+
+@app.route('/api/chart/heatmap')
+def api_chart_heatmap():
+    """Get activity heatmap (hour of day vs day of week)."""
+    timeframe = request.args.get('timeframe', 'all')
+    start_ts, end_ts = parse_timeframe(timeframe)
+
+    conn = get_db()
+
+    cursor = conn.execute('''
+        SELECT
+            CAST(strftime('%w', datetime(date_unixtime, 'unixepoch')) AS INTEGER) as dow,
+            CAST(strftime('%H', datetime(date_unixtime, 'unixepoch')) AS INTEGER) as hour,
+            COUNT(*) as count
+        FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+        GROUP BY dow, hour
+    ''', (start_ts, end_ts))
+
+    # Initialize grid
+    heatmap = [[0 for _ in range(24)] for _ in range(7)]
+
+    for row in cursor.fetchall():
+        dow, hour, count = row
+        heatmap[dow][hour] = count
+
+    conn.close()
+
+    return jsonify({
+        'data': heatmap,
+        'days': ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+        'hours': list(range(24))
+    })
+
+
+@app.route('/api/chart/daily')
+def api_chart_daily():
+    """Get activity by day of week."""
+    timeframe = request.args.get('timeframe', 'all')
+    start_ts, end_ts = parse_timeframe(timeframe)
+
+    conn = get_db()
+
+    days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+    cursor = conn.execute('''
+        SELECT
+            CAST(strftime('%w', datetime(date_unixtime, 'unixepoch')) AS INTEGER) as dow,
+            COUNT(*) as count
+        FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+        GROUP BY dow
+        ORDER BY dow
+    ''', (start_ts, end_ts))
+
+    data = {days[row[0]]: row[1] for row in cursor.fetchall()}
+    conn.close()
+
+    return jsonify([{'label': day, 'value': data.get(day, 0)} for day in days])
+
+
+@app.route('/api/chart/hourly')
+def api_chart_hourly():
+    """Get activity by hour of day."""
+    timeframe = request.args.get('timeframe', 'all')
+    start_ts, end_ts = parse_timeframe(timeframe)
+
+    conn = get_db()
+
+    cursor = conn.execute('''
+        SELECT
+            CAST(strftime('%H', datetime(date_unixtime, 'unixepoch')) AS INTEGER) as hour,
+            COUNT(*) as count
+        FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+        GROUP BY hour
+        ORDER BY hour
+    ''', (start_ts, end_ts))
+
+    data = {row[0]: row[1] for row in cursor.fetchall()}
+    conn.close()
+
+    return jsonify([{'label': f'{h:02d}:00', 'value': data.get(h, 0)} for h in range(24)])
+
+
+# ==========================================
+# API ENDPOINTS - USERS
+# ==========================================
+
+@app.route('/api/users')
+def api_users():
+    """Get user leaderboard."""
+    timeframe = request.args.get('timeframe', 'all')
+    start_ts, end_ts = parse_timeframe(timeframe)
+    limit = int(request.args.get('limit', 50))
+    offset = int(request.args.get('offset', 0))
+    sort_by = request.args.get('sort', 'messages')
+
+    conn = get_db()
+
+    # Get total messages for percentage calculation
+    cursor = conn.execute('''
+        SELECT COUNT(*) FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+    ''', (start_ts, end_ts))
+    total_messages = cursor.fetchone()[0]
+
+    # Get user stats
+    cursor = conn.execute('''
+        SELECT
+            from_id,
+            from_name,
+            COUNT(*) as message_count,
+            SUM(LENGTH(text_plain)) as char_count,
+            SUM(has_links) as links,
+            SUM(has_media) as media,
+            MIN(date_unixtime) as first_seen,
+            MAX(date_unixtime) as last_seen,
+            COUNT(DISTINCT date(datetime(date_unixtime, 'unixepoch'))) as active_days
+        FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+        AND from_id IS NOT NULL AND from_id != ''
+        GROUP BY from_id
+        ORDER BY message_count DESC
+        LIMIT ? OFFSET ?
+    ''', (start_ts, end_ts, limit, offset))
+
+    users = []
+    for i, row in enumerate(cursor.fetchall()):
+        users.append({
+            'rank': offset + i + 1,
+            'user_id': row['from_id'],
+            'name': row['from_name'] or 'Unknown',
+            'messages': row['message_count'],
+            'characters': row['char_count'] or 0,
+            'percentage': round(100 * row['message_count'] / total_messages, 2) if total_messages else 0,
+            'links': row['links'] or 0,
+            'media': row['media'] or 0,
+            'first_seen': row['first_seen'],
+            'last_seen': row['last_seen'],
+            'active_days': row['active_days'],
+            'daily_average': round(row['message_count'] / max(1, row['active_days']), 1)
+        })
+
+    # Get total count
+    cursor = conn.execute('''
+        SELECT COUNT(DISTINCT from_id) FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+    ''', (start_ts, end_ts))
+    total_users = cursor.fetchone()[0]
+
+    conn.close()
+
+    return jsonify({
+        'users': users,
+        'total': total_users,
+        'limit': limit,
+        'offset': offset
+    })
+
+
+@app.route('/api/user/<user_id>')
+def api_user_detail(user_id):
+    """Get detailed stats for a specific user."""
+    timeframe = request.args.get('timeframe', 'all')
+    start_ts, end_ts = parse_timeframe(timeframe)
+
+    conn = get_db()
+
+    # Basic stats
+    cursor = conn.execute('''
+        SELECT
+            from_name,
+            COUNT(*) as messages,
+            SUM(LENGTH(text_plain)) as characters,
+            SUM(has_links) as links,
+            SUM(has_media) as media,
+            SUM(has_mentions) as mentions,
+            MIN(date_unixtime) as first_seen,
+            MAX(date_unixtime) as last_seen,
+            COUNT(DISTINCT date(datetime(date_unixtime, 'unixepoch'))) as active_days
+        FROM messages
+        WHERE from_id = ?
+        AND date_unixtime BETWEEN ? AND ?
+    ''', (user_id, start_ts, end_ts))
+    row = cursor.fetchone()
+
+    if not row or not row['messages']:
+        conn.close()
+        return jsonify({'error': 'User not found'}), 404
+
+    # Replies sent
+    cursor = conn.execute('''
+        SELECT COUNT(*) FROM messages
+        WHERE from_id = ? AND reply_to_message_id IS NOT NULL
+        AND date_unixtime BETWEEN ? AND ?
+    ''', (user_id, start_ts, end_ts))
+    replies_sent = cursor.fetchone()[0]
+
+    # Replies received
+    cursor = conn.execute('''
+        SELECT COUNT(*) FROM messages m1
+        JOIN messages m2 ON m1.reply_to_message_id = m2.id
+        WHERE m2.from_id = ?
+        AND m1.date_unixtime BETWEEN ? AND ?
+    ''', (user_id, start_ts, end_ts))
+    replies_received = cursor.fetchone()[0]
+
+    # Activity by hour
+    cursor = conn.execute('''
+        SELECT
+            CAST(strftime('%H', datetime(date_unixtime, 'unixepoch')) AS INTEGER) as hour,
+            COUNT(*) as count
+        FROM messages
+        WHERE from_id = ?
+        AND date_unixtime BETWEEN ? AND ?
+        GROUP BY hour
+    ''', (user_id, start_ts, end_ts))
+    hourly = {row[0]: row[1] for row in cursor.fetchall()}
+
+    # Activity over time
+    cursor = conn.execute('''
+        SELECT
+            date(datetime(date_unixtime, 'unixepoch')) as day,
+            COUNT(*) as count
+        FROM messages
+        WHERE from_id = ?
+        AND date_unixtime BETWEEN ? AND ?
+        GROUP BY day
+        ORDER BY day DESC
+        LIMIT 30
+    ''', (user_id, start_ts, end_ts))
+    daily = [{'date': r[0], 'count': r[1]} for r in cursor.fetchall()]
+
+    # Rank
+    cursor = conn.execute('''
+        SELECT COUNT(*) + 1 FROM (
+            SELECT from_id, COUNT(*) as cnt FROM messages
+            WHERE date_unixtime BETWEEN ? AND ?
+            GROUP BY from_id
+        ) WHERE cnt > ?
+    ''', (start_ts, end_ts, row['messages']))
+    rank = cursor.fetchone()[0]
+
+    conn.close()
+
+    return jsonify({
+        'user_id': user_id,
+        'name': row['from_name'] or 'Unknown',
+        'messages': row['messages'],
+        'characters': row['characters'] or 0,
+        'links': row['links'] or 0,
+        'media': row['media'] or 0,
+        'mentions': row['mentions'] or 0,
+        'first_seen': row['first_seen'],
+        'last_seen': row['last_seen'],
+        'active_days': row['active_days'],
+        'daily_average': round(row['messages'] / max(1, row['active_days']), 1),
+        'replies_sent': replies_sent,
+        'replies_received': replies_received,
+        'rank': rank,
+        'hourly_activity': [hourly.get(h, 0) for h in range(24)],
+        'daily_activity': daily
+    })
+
+
+# ==========================================
+# API ENDPOINTS - CONTENT ANALYTICS
+# ==========================================
+
+@app.route('/api/top/words')
+def api_top_words():
+    """Get top words."""
+    timeframe = request.args.get('timeframe', 'all')
+    start_ts, end_ts = parse_timeframe(timeframe)
+    limit = int(request.args.get('limit', 30))
+
+    conn = get_db()
+
+    cursor = conn.execute('''
+        SELECT text_plain FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+        AND text_plain IS NOT NULL
+    ''', (start_ts, end_ts))
+
+    import re
+    word_pattern = re.compile(r'[\u0590-\u05FFa-zA-Z]{3,}')
+    words = []
+
+    for row in cursor.fetchall():
+        words.extend(word_pattern.findall(row[0].lower()))
+
+    conn.close()
+
+    top_words = top_k_frequent(words, limit)
+    return jsonify([{'word': w, 'count': c} for w, c in top_words])
+
+
+@app.route('/api/top/domains')
+def api_top_domains():
+    """Get top shared domains."""
+    timeframe = request.args.get('timeframe', 'all')
+    start_ts, end_ts = parse_timeframe(timeframe)
+    limit = int(request.args.get('limit', 20))
+
+    conn = get_db()
+
+    cursor = conn.execute('''
+        SELECT e.value FROM entities e
+        JOIN messages m ON e.message_id = m.id
+        WHERE e.type = 'link'
+        AND m.date_unixtime BETWEEN ? AND ?
+    ''', (start_ts, end_ts))
+
+    import re
+    domain_pattern = re.compile(r'https?://(?:www\.)?([^/]+)')
+    domains = []
+
+    for row in cursor.fetchall():
+        match = domain_pattern.match(row[0])
+        if match:
+            domains.append(match.group(1))
+
+    conn.close()
+
+    top_domains = top_k_frequent(domains, limit)
+    return jsonify([{'domain': d, 'count': c} for d, c in top_domains])
+
+
+@app.route('/api/top/mentions')
+def api_top_mentions():
+    """Get top mentioned users."""
+    timeframe = request.args.get('timeframe', 'all')
+    start_ts, end_ts = parse_timeframe(timeframe)
+    limit = int(request.args.get('limit', 20))
+
+    conn = get_db()
+
+    cursor = conn.execute('''
+        SELECT e.value, COUNT(*) as count FROM entities e
+        JOIN messages m ON e.message_id = m.id
+        WHERE e.type = 'mention'
+        AND m.date_unixtime BETWEEN ? AND ?
+        GROUP BY e.value
+        ORDER BY count DESC
+        LIMIT ?
+    ''', (start_ts, end_ts, limit))
+
+    data = [{'mention': row[0], 'count': row[1]} for row in cursor.fetchall()]
+    conn.close()
+
+    return jsonify(data)
+
+
+# ==========================================
+# API ENDPOINTS - SEARCH
+# ==========================================
+
+@app.route('/api/search')
+def api_search():
+    """Search messages."""
+    query = request.args.get('q', '')
+    timeframe = request.args.get('timeframe', 'all')
+    start_ts, end_ts = parse_timeframe(timeframe)
+    limit = int(request.args.get('limit', 50))
+    offset = int(request.args.get('offset', 0))
+
+    if not query:
+        return jsonify({'results': [], 'total': 0})
+
+    conn = get_db()
+
+    cursor = conn.execute('''
+        SELECT
+            m.id,
+            m.date,
+            m.from_name,
+            m.from_id,
+            m.text_plain,
+            m.has_links,
+            m.has_media
+        FROM messages_fts
+        JOIN messages m ON messages_fts.rowid = m.id
+        WHERE messages_fts MATCH ?
+        AND m.date_unixtime BETWEEN ? AND ?
+        ORDER BY m.date_unixtime DESC
+        LIMIT ? OFFSET ?
+    ''', (query, start_ts, end_ts, limit, offset))
+
+    results = [{
+        'id': row['id'],
+        'date': row['date'],
+        'from_name': row['from_name'],
+        'from_id': row['from_id'],
+        'text': row['text_plain'][:300] if row['text_plain'] else '',
+        'has_links': bool(row['has_links']),
+        'has_media': bool(row['has_media'])
+    } for row in cursor.fetchall()]
+
+    conn.close()
+
+    return jsonify({
+        'results': results,
+        'query': query,
+        'limit': limit,
+        'offset': offset
+    })
+
+
+# ==========================================
+# API ENDPOINTS - EXPORT
+# ==========================================
+
+@app.route('/api/export/users')
+def api_export_users():
+    """Export user data as CSV."""
+    timeframe = request.args.get('timeframe', 'all')
+    start_ts, end_ts = parse_timeframe(timeframe)
+
+    conn = get_db()
+
+    cursor = conn.execute('''
+        SELECT
+            from_id,
+            from_name,
+            COUNT(*) as message_count,
+            SUM(LENGTH(text_plain)) as char_count,
+            SUM(has_links) as links,
+            SUM(has_media) as media,
+            MIN(date_unixtime) as first_seen,
+            MAX(date_unixtime) as last_seen
+        FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+        AND from_id IS NOT NULL
+        GROUP BY from_id
+        ORDER BY message_count DESC
+    ''', (start_ts, end_ts))
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['User ID', 'Name', 'Messages', 'Characters', 'Links', 'Media', 'First Seen', 'Last Seen'])
+
+    for row in cursor.fetchall():
+        writer.writerow([
+            row['from_id'],
+            row['from_name'],
+            row['message_count'],
+            row['char_count'] or 0,
+            row['links'] or 0,
+            row['media'] or 0,
+            datetime.fromtimestamp(row['first_seen']).isoformat() if row['first_seen'] else '',
+            datetime.fromtimestamp(row['last_seen']).isoformat() if row['last_seen'] else ''
+        ])
+
+    conn.close()
+
+    output.seek(0)
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=users_export.csv'}
+    )
+
+
+@app.route('/api/export/messages')
+def api_export_messages():
+    """Export messages as CSV."""
+    timeframe = request.args.get('timeframe', 'all')
+    start_ts, end_ts = parse_timeframe(timeframe)
+    limit = int(request.args.get('limit', 10000))
+
+    conn = get_db()
+
+    cursor = conn.execute('''
+        SELECT
+            id, date, from_id, from_name, text_plain,
+            has_links, has_media, has_mentions,
+            reply_to_message_id
+        FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+        ORDER BY date_unixtime DESC
+        LIMIT ?
+    ''', (start_ts, end_ts, limit))
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['ID', 'Date', 'User ID', 'User Name', 'Text', 'Has Links', 'Has Media', 'Has Mentions', 'Reply To'])
+
+    for row in cursor.fetchall():
+        writer.writerow([
+            row['id'],
+            row['date'],
+            row['from_id'],
+            row['from_name'],
+            row['text_plain'][:500] if row['text_plain'] else '',
+            row['has_links'],
+            row['has_media'],
+            row['has_mentions'],
+            row['reply_to_message_id']
+        ])
+
+    conn.close()
+
+    output.seek(0)
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=messages_export.csv'}
+    )
+
+
+# ==========================================
+# MAIN
+# ==========================================
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(description='Telegram Analytics Dashboard')
+    parser.add_argument('--db', default='telegram.db', help='Database path')
+    parser.add_argument('--port', type=int, default=5000, help='Server port')
+    parser.add_argument('--host', default='127.0.0.1', help='Server host')
+    parser.add_argument('--debug', action='store_true', help='Debug mode')
+
+    args = parser.parse_args()
+
+    global DB_PATH
+    DB_PATH = args.db
+
+    print(f"""
+╔══════════════════════════════════════════════════════════════╗
+║           TELEGRAM ANALYTICS DASHBOARD                        ║
+╠══════════════════════════════════════════════════════════════╣
+║  Database: {args.db:47} ║
+║  Server:   http://{args.host}:{args.port:<37} ║
+╚══════════════════════════════════════════════════════════════╝
+    """)
+
+    app.run(host=args.host, port=args.port, debug=args.debug)
+
+
+if __name__ == '__main__':
+    main()

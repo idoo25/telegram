@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Users - Telegram Analytics</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <!-- Sidebar -->
+    <nav class="sidebar">
+        <div class="logo">
+            <span class="logo-icon">📊</span>
+            <span class="logo-text">TG Analytics</span>
+        </div>
+        <ul class="nav-menu">
+            <li class="nav-item">
+                <a href="/" class="nav-link">
+                    <span class="icon">📈</span>
+                    <span>Overview</span>
+                </a>
+            </li>
+            <li class="nav-item active">
+                <a href="/users" class="nav-link">
+                    <span class="icon">👥</span>
+                    <span>Users</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/search" class="nav-link">
+                    <span class="icon">🔍</span>
+                    <span>Search</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/moderation" class="nav-link">
+                    <span class="icon">🛡️</span>
+                    <span>Moderation</span>
+                </a>
+            </li>
+        </ul>
+        <div class="sidebar-footer">
+            <div class="export-buttons">
+                <button onclick="exportUsers()" class="btn btn-sm">📥 Export Users</button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Header -->
+        <header class="header">
+            <h1>User Leaderboard</h1>
+            <div class="header-controls">
+                <select id="timeframe" class="select" onchange="loadUsers()">
+                    <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
+                    <option value="week">This Week</option>
+                    <option value="month" selected>This Month</option>
+                    <option value="year">This Year</option>
+                    <option value="all">All Time</option>
+                </select>
+                <button onclick="loadUsers()" class="btn btn-primary">🔄 Refresh</button>
+            </div>
+        </header>
+
+        <!-- User Stats Summary -->
+        <section class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon">👥</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="total-users">-</div>
+                    <div class="stat-label">Total Users</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🏆</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="top-user">-</div>
+                    <div class="stat-label">Top User</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">📊</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="avg-messages">-</div>
+                    <div class="stat-label">Avg Messages/User</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Users Table -->
+        <section class="chart-card full-width">
+            <div class="chart-header">
+                <h3>All Users</h3>
+                <div style="display: flex; gap: 1rem; align-items: center;">
+                    <input type="search" id="user-search" placeholder="Search users..."
+                           style="width: 200px;" onkeyup="filterUsers()">
+                    <span id="showing-count" style="color: var(--text-muted); font-size: 0.875rem;"></span>
+                </div>
+            </div>
+            <div style="overflow-x: auto;">
+                <table class="users-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 60px;">Rank</th>
+                            <th>User</th>
+                            <th style="width: 120px;">Messages</th>
+                            <th style="width: 100px;">Share</th>
+                            <th style="width: 100px;">Links</th>
+                            <th style="width: 100px;">Media</th>
+                            <th style="width: 100px;">Active Days</th>
+                            <th style="width: 100px;">Daily Avg</th>
+                        </tr>
+                    </thead>
+                    <tbody id="users-table-body">
+                        <tr>
+                            <td colspan="8" class="loading">
+                                <div class="spinner"></div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <!-- Pagination -->
+            <div class="pagination" id="pagination"></div>
+        </section>
+    </main>
+
+    <!-- User Detail Modal -->
+    <div class="modal-overlay" id="user-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="modal-user-name">User Details</h2>
+                <button class="modal-close" onclick="closeUserModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <div class="loading">
+                    <div class="spinner"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/dashboard.js"></script>
+    <script>
+        // State
+        let allUsers = [];
+        let currentPage = 1;
+        const pageSize = 20;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            loadUsers();
+        });
+
+        async function loadUsers() {
+            const timeframe = document.getElementById('timeframe').value;
+            const tbody = document.getElementById('users-table-body');
+            tbody.innerHTML = '<tr><td colspan="8" class="loading"><div class="spinner"></div></td></tr>';
+
+            try {
+                const response = await fetch(`/api/users?timeframe=${timeframe}&limit=500`);
+                const data = await response.json();
+                allUsers = data.users;
+
+                // Update summary stats
+                document.getElementById('total-users').textContent = formatNumber(data.total);
+                if (allUsers.length > 0) {
+                    document.getElementById('top-user').textContent = allUsers[0].name;
+                    const totalMessages = allUsers.reduce((sum, u) => sum + u.messages, 0);
+                    document.getElementById('avg-messages').textContent =
+                        formatNumber(Math.round(totalMessages / allUsers.length));
+                }
+
+                currentPage = 1;
+                renderUsers();
+            } catch (error) {
+                tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Error loading users</td></tr>';
+            }
+        }
+
+        function filterUsers() {
+            currentPage = 1;
+            renderUsers();
+        }
+
+        function renderUsers() {
+            const search = document.getElementById('user-search').value.toLowerCase();
+            const filtered = allUsers.filter(u =>
+                u.name.toLowerCase().includes(search) ||
+                u.user_id.toLowerCase().includes(search)
+            );
+
+            const start = (currentPage - 1) * pageSize;
+            const end = start + pageSize;
+            const pageUsers = filtered.slice(start, end);
+
+            document.getElementById('showing-count').textContent =
+                `Showing ${start + 1}-${Math.min(end, filtered.length)} of ${filtered.length}`;
+
+            const tbody = document.getElementById('users-table-body');
+
+            if (pageUsers.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No users found</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = pageUsers.map((user, i) => {
+                const rank = start + i + 1;
+                const rankClass = rank === 1 ? 'gold' : rank === 2 ? 'silver' : rank === 3 ? 'bronze' : '';
+                const initial = user.name.charAt(0).toUpperCase();
+
+                return `
+                    <tr onclick="openUserModal('${user.user_id}')" style="cursor: pointer;">
+                        <td><span class="list-rank ${rankClass}">#${rank}</span></td>
+                        <td>
+                            <div class="user-cell">
+                                <div class="user-avatar">${initial}</div>
+                                <div>
+                                    <div class="list-name">${escapeHtml(user.name)}</div>
+                                    <div class="list-subtitle">ID: ${user.user_id}</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            <strong>${formatNumber(user.messages)}</strong>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${user.percentage}%"></div>
+                            </div>
+                        </td>
+                        <td>${user.percentage}%</td>
+                        <td>${formatNumber(user.links)}</td>
+                        <td>${formatNumber(user.media)}</td>
+                        <td>${user.active_days}</td>
+                        <td>${user.daily_average}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            // Render pagination
+            const totalPages = Math.ceil(filtered.length / pageSize);
+            renderPagination(totalPages);
+        }
+
+        function renderPagination(totalPages) {
+            const pagination = document.getElementById('pagination');
+
+            if (totalPages <= 1) {
+                pagination.innerHTML = '';
+                return;
+            }
+
+            let html = '';
+
+            // Previous button
+            html += `<button class="page-btn" onclick="goToPage(${currentPage - 1})"
+                     ${currentPage === 1 ? 'disabled' : ''}>&laquo;</button>`;
+
+            // Page numbers
+            const maxVisible = 5;
+            let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+            let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+
+            if (endPage - startPage < maxVisible - 1) {
+                startPage = Math.max(1, endPage - maxVisible + 1);
+            }
+
+            if (startPage > 1) {
+                html += `<button class="page-btn" onclick="goToPage(1)">1</button>`;
+                if (startPage > 2) html += `<span style="padding: 0 0.5rem;">...</span>`;
+            }
+
+            for (let i = startPage; i <= endPage; i++) {
+                html += `<button class="page-btn ${i === currentPage ? 'active' : ''}"
+                         onclick="goToPage(${i})">${i}</button>`;
+            }
+
+            if (endPage < totalPages) {
+                if (endPage < totalPages - 1) html += `<span style="padding: 0 0.5rem;">...</span>`;
+                html += `<button class="page-btn" onclick="goToPage(${totalPages})">${totalPages}</button>`;
+            }
+
+            // Next button
+            html += `<button class="page-btn" onclick="goToPage(${currentPage + 1})"
+                     ${currentPage === totalPages ? 'disabled' : ''}>&raquo;</button>`;
+
+            pagination.innerHTML = html;
+        }
+
+        function goToPage(page) {
+            currentPage = page;
+            renderUsers();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        async function openUserModal(userId) {
+            const modal = document.getElementById('user-modal');
+            const modalBody = document.getElementById('modal-body');
+            const modalName = document.getElementById('modal-user-name');
+
+            modal.classList.add('active');
+            modalBody.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+            try {
+                const timeframe = document.getElementById('timeframe').value;
+                const response = await fetch(`/api/user/${userId}?timeframe=${timeframe}`);
+                const user = await response.json();
+
+                modalName.textContent = user.name;
+
+                modalBody.innerHTML = `
+                    <div class="user-profile">
+                        <div class="user-profile-avatar">${user.name.charAt(0).toUpperCase()}</div>
+                        <div class="user-profile-info">
+                            <h3>${escapeHtml(user.name)}</h3>
+                            <p>Rank #${user.rank} | ID: ${user.user_id}</p>
+                        </div>
+                    </div>
+
+                    <div class="user-stats-grid">
+                        <div class="user-stat">
+                            <div class="user-stat-value">${formatNumber(user.messages)}</div>
+                            <div class="user-stat-label">Messages</div>
+                        </div>
+                        <div class="user-stat">
+                            <div class="user-stat-value">${formatNumber(user.characters)}</div>
+                            <div class="user-stat-label">Characters</div>
+                        </div>
+                        <div class="user-stat">
+                            <div class="user-stat-value">${user.active_days}</div>
+                            <div class="user-stat-label">Active Days</div>
+                        </div>
+                        <div class="user-stat">
+                            <div class="user-stat-value">${user.daily_average}</div>
+                            <div class="user-stat-label">Daily Avg</div>
+                        </div>
+                        <div class="user-stat">
+                            <div class="user-stat-value">${formatNumber(user.replies_sent)}</div>
+                            <div class="user-stat-label">Replies Sent</div>
+                        </div>
+                        <div class="user-stat">
+                            <div class="user-stat-value">${formatNumber(user.replies_received)}</div>
+                            <div class="user-stat-label">Replies Received</div>
+                        </div>
+                    </div>
+
+                    <div class="chart-header">
+                        <h3>Activity by Hour</h3>
+                    </div>
+                    <div class="chart-container" style="height: 200px;">
+                        <canvas id="user-hourly-chart"></canvas>
+                    </div>
+                `;
+
+                // Render hourly chart
+                const ctx = document.getElementById('user-hourly-chart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: Array.from({length: 24}, (_, i) => `${i}:00`),
+                        datasets: [{
+                            label: 'Messages',
+                            data: user.hourly_activity,
+                            backgroundColor: 'rgba(0, 136, 204, 0.6)',
+                            borderColor: 'rgba(0, 136, 204, 1)',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                                ticks: { color: '#a0aec0' }
+                            },
+                            x: {
+                                grid: { display: false },
+                                ticks: { color: '#a0aec0', maxRotation: 0, autoSkip: true, maxTicksLimit: 12 }
+                            }
+                        }
+                    }
+                });
+
+            } catch (error) {
+                modalBody.innerHTML = '<div class="empty-state">Error loading user details</div>';
+            }
+        }
+
+        function closeUserModal() {
+            document.getElementById('user-modal').classList.remove('active');
+        }
+
+        // Close modal on outside click
+        document.getElementById('user-modal').addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal-overlay')) {
+                closeUserModal();
+            }
+        });
+
+        // Export function
+        function exportUsers() {
+            const timeframe = document.getElementById('timeframe').value;
+            window.location.href = `/api/export/users?timeframe=${timeframe}`;
+        }
+
+        // Helper functions
+        function formatNumber(num) {
+            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+            return num.toString();
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

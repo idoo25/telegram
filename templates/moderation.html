@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moderation - Telegram Analytics</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <!-- Sidebar -->
+    <nav class="sidebar">
+        <div class="logo">
+            <span class="logo-icon">📊</span>
+            <span class="logo-text">TG Analytics</span>
+        </div>
+        <ul class="nav-menu">
+            <li class="nav-item">
+                <a href="/" class="nav-link">
+                    <span class="icon">📈</span>
+                    <span>Overview</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/users" class="nav-link">
+                    <span class="icon">👥</span>
+                    <span>Users</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/search" class="nav-link">
+                    <span class="icon">🔍</span>
+                    <span>Search</span>
+                </a>
+            </li>
+            <li class="nav-item active">
+                <a href="/moderation" class="nav-link">
+                    <span class="icon">🛡️</span>
+                    <span>Moderation</span>
+                </a>
+            </li>
+        </ul>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Header -->
+        <header class="header">
+            <h1>Moderation & Content Analytics</h1>
+            <div class="header-controls">
+                <select id="timeframe" class="select" onchange="loadAllData()">
+                    <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
+                    <option value="week">This Week</option>
+                    <option value="month" selected>This Month</option>
+                    <option value="year">This Year</option>
+                    <option value="all">All Time</option>
+                </select>
+                <button onclick="loadAllData()" class="btn btn-primary">🔄 Refresh</button>
+            </div>
+        </header>
+
+        <!-- Content Stats -->
+        <section class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon">🔗</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="total-links">-</div>
+                    <div class="stat-label">Links Shared</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🖼️</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="total-media">-</div>
+                    <div class="stat-label">Media Shared</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">@</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="total-mentions">-</div>
+                    <div class="stat-label">Mentions</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">↪️</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="total-forwards">-</div>
+                    <div class="stat-label">Forwards</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Charts Row -->
+        <section class="charts-row">
+            <div class="chart-card">
+                <div class="chart-header">
+                    <h3>Top Shared Domains</h3>
+                </div>
+                <div class="chart-container">
+                    <canvas id="domains-chart"></canvas>
+                </div>
+            </div>
+            <div class="chart-card">
+                <div class="chart-header">
+                    <h3>Content Type Distribution</h3>
+                </div>
+                <div class="chart-container">
+                    <canvas id="content-chart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Lists Row -->
+        <section class="lists-row">
+            <!-- Top Domains List -->
+            <div class="list-card">
+                <div class="list-header">
+                    <h3>🌐 Top Domains</h3>
+                </div>
+                <div class="list-content" id="domains-list">
+                    <div class="loading"><div class="spinner"></div></div>
+                </div>
+            </div>
+
+            <!-- Top Mentions List -->
+            <div class="list-card">
+                <div class="list-header">
+                    <h3>@ Top Mentions</h3>
+                </div>
+                <div class="list-content" id="mentions-list">
+                    <div class="loading"><div class="spinner"></div></div>
+                </div>
+            </div>
+
+            <!-- Top Words List -->
+            <div class="list-card">
+                <div class="list-header">
+                    <h3>🔤 Top Words</h3>
+                </div>
+                <div class="list-content" id="words-list">
+                    <div class="loading"><div class="spinner"></div></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Link Sharers -->
+        <section class="chart-card full-width">
+            <div class="chart-header">
+                <h3>Top Link Sharers</h3>
+            </div>
+            <div style="overflow-x: auto;">
+                <table class="users-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 60px;">Rank</th>
+                            <th>User</th>
+                            <th style="width: 120px;">Links</th>
+                            <th style="width: 120px;">Media</th>
+                            <th style="width: 120px;">Messages</th>
+                            <th style="width: 150px;">Link Rate</th>
+                        </tr>
+                    </thead>
+                    <tbody id="link-sharers-body">
+                        <tr>
+                            <td colspan="6" class="loading">
+                                <div class="spinner"></div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        // Chart instances
+        let domainsChart = null;
+        let contentChart = null;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            loadAllData();
+        });
+
+        async function loadAllData() {
+            await Promise.all([
+                loadOverview(),
+                loadDomains(),
+                loadMentions(),
+                loadWords(),
+                loadLinkSharers()
+            ]);
+        }
+
+        async function loadOverview() {
+            const timeframe = document.getElementById('timeframe').value;
+
+            try {
+                const response = await fetch(`/api/overview?timeframe=${timeframe}`);
+                const data = await response.json();
+
+                document.getElementById('total-links').textContent = formatNumber(data.links_count);
+                document.getElementById('total-media').textContent = formatNumber(data.media_count);
+                document.getElementById('total-mentions').textContent = formatNumber(data.mentions_count);
+                document.getElementById('total-forwards').textContent = formatNumber(data.forwards_count);
+
+                // Update content distribution chart
+                renderContentChart(data);
+            } catch (error) {
+                console.error('Error loading overview:', error);
+            }
+        }
+
+        async function loadDomains() {
+            const timeframe = document.getElementById('timeframe').value;
+            const listDiv = document.getElementById('domains-list');
+
+            try {
+                const response = await fetch(`/api/top/domains?timeframe=${timeframe}&limit=15`);
+                const data = await response.json();
+
+                if (data.length === 0) {
+                    listDiv.innerHTML = '<div class="empty-state">No domains found</div>';
+                    return;
+                }
+
+                listDiv.innerHTML = data.map((item, i) => `
+                    <div class="list-item">
+                        <span class="list-rank ${i < 3 ? ['gold', 'silver', 'bronze'][i] : ''}">#${i + 1}</span>
+                        <div class="list-info">
+                            <div class="list-name">${escapeHtml(item.domain)}</div>
+                        </div>
+                        <span class="list-value">${formatNumber(item.count)}</span>
+                    </div>
+                `).join('');
+
+                // Render domains chart
+                renderDomainsChart(data.slice(0, 8));
+            } catch (error) {
+                listDiv.innerHTML = '<div class="empty-state">Error loading domains</div>';
+            }
+        }
+
+        async function loadMentions() {
+            const timeframe = document.getElementById('timeframe').value;
+            const listDiv = document.getElementById('mentions-list');
+
+            try {
+                const response = await fetch(`/api/top/mentions?timeframe=${timeframe}&limit=15`);
+                const data = await response.json();
+
+                if (data.length === 0) {
+                    listDiv.innerHTML = '<div class="empty-state">No mentions found</div>';
+                    return;
+                }
+
+                listDiv.innerHTML = data.map((item, i) => `
+                    <div class="list-item">
+                        <span class="list-rank ${i < 3 ? ['gold', 'silver', 'bronze'][i] : ''}">#${i + 1}</span>
+                        <div class="list-info">
+                            <div class="list-name">@${escapeHtml(item.mention)}</div>
+                        </div>
+                        <span class="list-value">${formatNumber(item.count)}</span>
+                    </div>
+                `).join('');
+            } catch (error) {
+                listDiv.innerHTML = '<div class="empty-state">Error loading mentions</div>';
+            }
+        }
+
+        async function loadWords() {
+            const timeframe = document.getElementById('timeframe').value;
+            const listDiv = document.getElementById('words-list');
+
+            try {
+                const response = await fetch(`/api/top/words?timeframe=${timeframe}&limit=15`);
+                const data = await response.json();
+
+                if (data.length === 0) {
+                    listDiv.innerHTML = '<div class="empty-state">No words found</div>';
+                    return;
+                }
+
+                listDiv.innerHTML = data.map((item, i) => `
+                    <div class="list-item">
+                        <span class="list-rank ${i < 3 ? ['gold', 'silver', 'bronze'][i] : ''}">#${i + 1}</span>
+                        <div class="list-info">
+                            <div class="list-name">${escapeHtml(item.word)}</div>
+                        </div>
+                        <span class="list-value">${formatNumber(item.count)}</span>
+                    </div>
+                `).join('');
+            } catch (error) {
+                listDiv.innerHTML = '<div class="empty-state">Error loading words</div>';
+            }
+        }
+
+        async function loadLinkSharers() {
+            const timeframe = document.getElementById('timeframe').value;
+            const tbody = document.getElementById('link-sharers-body');
+
+            try {
+                const response = await fetch(`/api/users?timeframe=${timeframe}&limit=10`);
+                const data = await response.json();
+
+                // Sort by links
+                const users = data.users.sort((a, b) => b.links - a.links).slice(0, 10);
+
+                if (users.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No data found</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = users.map((user, i) => {
+                    const linkRate = user.messages > 0 ? ((user.links / user.messages) * 100).toFixed(1) : 0;
+                    const rankClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
+
+                    return `
+                        <tr>
+                            <td><span class="list-rank ${rankClass}">#${i + 1}</span></td>
+                            <td>
+                                <div class="user-cell">
+                                    <div class="user-avatar">${user.name.charAt(0).toUpperCase()}</div>
+                                    <div>
+                                        <div class="list-name">${escapeHtml(user.name)}</div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td><strong>${formatNumber(user.links)}</strong></td>
+                            <td>${formatNumber(user.media)}</td>
+                            <td>${formatNumber(user.messages)}</td>
+                            <td>
+                                ${linkRate}%
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: ${Math.min(linkRate * 2, 100)}%"></div>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            } catch (error) {
+                tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Error loading data</td></tr>';
+            }
+        }
+
+        function renderDomainsChart(data) {
+            const ctx = document.getElementById('domains-chart').getContext('2d');
+
+            if (domainsChart) domainsChart.destroy();
+
+            domainsChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.map(d => d.domain.substring(0, 15)),
+                    datasets: [{
+                        data: data.map(d => d.count),
+                        backgroundColor: [
+                            'rgba(0, 136, 204, 0.8)',
+                            'rgba(40, 167, 69, 0.8)',
+                            'rgba(255, 193, 7, 0.8)',
+                            'rgba(220, 53, 69, 0.8)',
+                            'rgba(23, 162, 184, 0.8)',
+                            'rgba(108, 117, 125, 0.8)',
+                            'rgba(111, 66, 193, 0.8)',
+                            'rgba(253, 126, 20, 0.8)'
+                        ],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            ticks: { color: '#a0aec0' }
+                        },
+                        y: {
+                            grid: { display: false },
+                            ticks: { color: '#a0aec0' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderContentChart(data) {
+            const ctx = document.getElementById('content-chart').getContext('2d');
+
+            if (contentChart) contentChart.destroy();
+
+            const textOnly = data.total_messages - data.links_count - data.media_count;
+
+            contentChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Text Only', 'With Links', 'With Media', 'Replies', 'Forwards'],
+                    datasets: [{
+                        data: [
+                            Math.max(0, textOnly),
+                            data.links_count,
+                            data.media_count,
+                            data.replies_count,
+                            data.forwards_count
+                        ],
+                        backgroundColor: [
+                            'rgba(0, 136, 204, 0.8)',
+                            'rgba(40, 167, 69, 0.8)',
+                            'rgba(255, 193, 7, 0.8)',
+                            'rgba(23, 162, 184, 0.8)',
+                            'rgba(108, 117, 125, 0.8)'
+                        ],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: { color: '#a0aec0' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Helper functions
+        function formatNumber(num) {
+            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+            return num.toString();
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Search - Telegram Analytics</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <!-- Sidebar -->
+    <nav class="sidebar">
+        <div class="logo">
+            <span class="logo-icon">📊</span>
+            <span class="logo-text">TG Analytics</span>
+        </div>
+        <ul class="nav-menu">
+            <li class="nav-item">
+                <a href="/" class="nav-link">
+                    <span class="icon">📈</span>
+                    <span>Overview</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/users" class="nav-link">
+                    <span class="icon">👥</span>
+                    <span>Users</span>
+                </a>
+            </li>
+            <li class="nav-item active">
+                <a href="/search" class="nav-link">
+                    <span class="icon">🔍</span>
+                    <span>Search</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/moderation" class="nav-link">
+                    <span class="icon">🛡️</span>
+                    <span>Moderation</span>
+                </a>
+            </li>
+        </ul>
+        <div class="sidebar-footer">
+            <div class="export-buttons">
+                <button onclick="exportMessages()" class="btn btn-sm">📥 Export Messages</button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Header -->
+        <header class="header">
+            <h1>Search Messages</h1>
+            <div class="header-controls">
+                <select id="timeframe" class="select">
+                    <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
+                    <option value="week">This Week</option>
+                    <option value="month">This Month</option>
+                    <option value="year">This Year</option>
+                    <option value="all" selected>All Time</option>
+                </select>
+            </div>
+        </header>
+
+        <!-- Search Box -->
+        <section class="search-box">
+            <input type="search" id="search-input" class="search-input"
+                   placeholder="Search messages... (supports Hebrew and English)"
+                   onkeypress="if(event.key === 'Enter') performSearch()">
+            <button onclick="performSearch()" class="btn btn-primary">🔍 Search</button>
+        </section>
+
+        <!-- Search Tips -->
+        <section class="chart-card" style="margin-bottom: var(--spacing-xl);">
+            <div class="chart-header">
+                <h3>Search Tips</h3>
+            </div>
+            <div style="padding: var(--spacing-md); color: var(--text-secondary); font-size: 0.875rem;">
+                <ul style="list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">
+                    <li><strong>word1 word2</strong> - Messages containing both words</li>
+                    <li><strong>"exact phrase"</strong> - Messages with exact phrase</li>
+                    <li><strong>word1 OR word2</strong> - Messages with either word</li>
+                    <li><strong>word*</strong> - Prefix search (word, words, wording)</li>
+                    <li><strong>NOT word</strong> - Exclude messages with word</li>
+                    <li><strong>Hebrew supported</strong> - Full Hebrew text search</li>
+                </ul>
+            </div>
+        </section>
+
+        <!-- Search Stats -->
+        <section class="stats-grid" id="search-stats" style="display: none;">
+            <div class="stat-card">
+                <div class="stat-icon">🔍</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="result-count">0</div>
+                    <div class="stat-label">Results Found</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">⚡</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="search-time">0ms</div>
+                    <div class="stat-label">Search Time</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Search Results -->
+        <section class="search-results" id="search-results">
+            <div class="empty-state">
+                <div class="empty-state-icon">🔍</div>
+                <p>Enter a search term to find messages</p>
+            </div>
+        </section>
+
+        <!-- Pagination -->
+        <div class="pagination" id="pagination"></div>
+    </main>
+
+    <script>
+        // State
+        let currentQuery = '';
+        let currentPage = 1;
+        const pageSize = 20;
+
+        async function performSearch(page = 1) {
+            const query = document.getElementById('search-input').value.trim();
+            const timeframe = document.getElementById('timeframe').value;
+
+            if (!query) {
+                document.getElementById('search-results').innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🔍</div>
+                        <p>Enter a search term to find messages</p>
+                    </div>
+                `;
+                document.getElementById('search-stats').style.display = 'none';
+                document.getElementById('pagination').innerHTML = '';
+                return;
+            }
+
+            currentQuery = query;
+            currentPage = page;
+
+            const resultsDiv = document.getElementById('search-results');
+            resultsDiv.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+            const startTime = performance.now();
+
+            try {
+                const offset = (page - 1) * pageSize;
+                const response = await fetch(
+                    `/api/search?q=${encodeURIComponent(query)}&timeframe=${timeframe}&limit=${pageSize}&offset=${offset}`
+                );
+                const data = await response.json();
+
+                const endTime = performance.now();
+                const searchTime = Math.round(endTime - startTime);
+
+                // Show stats
+                document.getElementById('search-stats').style.display = 'grid';
+                document.getElementById('result-count').textContent = data.results.length +
+                    (data.results.length === pageSize ? '+' : '');
+                document.getElementById('search-time').textContent = searchTime + 'ms';
+
+                if (data.results.length === 0) {
+                    resultsDiv.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">😕</div>
+                            <p>No messages found for "${escapeHtml(query)}"</p>
+                        </div>
+                    `;
+                    document.getElementById('pagination').innerHTML = '';
+                    return;
+                }
+
+                resultsDiv.innerHTML = data.results.map(result => `
+                    <div class="search-result-item">
+                        <div class="search-result-header">
+                            <span class="search-result-author">${escapeHtml(result.from_name || 'Unknown')}</span>
+                            <span class="search-result-date">${result.date}</span>
+                        </div>
+                        <div class="search-result-text">${highlightQuery(result.text, query)}</div>
+                        <div style="margin-top: 0.5rem; font-size: 0.75rem; color: var(--text-muted);">
+                            ${result.has_links ? '🔗 Link' : ''}
+                            ${result.has_media ? '🖼️ Media' : ''}
+                        </div>
+                    </div>
+                `).join('');
+
+                // Simple pagination (since we don't have total count from FTS)
+                renderPagination(data.results.length === pageSize);
+
+            } catch (error) {
+                resultsDiv.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">❌</div>
+                        <p>Error performing search. Please try again.</p>
+                    </div>
+                `;
+            }
+        }
+
+        function renderPagination(hasMore) {
+            const pagination = document.getElementById('pagination');
+
+            if (currentPage === 1 && !hasMore) {
+                pagination.innerHTML = '';
+                return;
+            }
+
+            let html = '';
+
+            html += `<button class="page-btn" onclick="performSearch(${currentPage - 1})"
+                     ${currentPage === 1 ? 'disabled' : ''}>&laquo; Previous</button>`;
+
+            html += `<span style="padding: 0 1rem; color: var(--text-muted);">Page ${currentPage}</span>`;
+
+            html += `<button class="page-btn" onclick="performSearch(${currentPage + 1})"
+                     ${!hasMore ? 'disabled' : ''}>Next &raquo;</button>`;
+
+            pagination.innerHTML = html;
+        }
+
+        function highlightQuery(text, query) {
+            if (!text) return '';
+
+            // Escape HTML first
+            text = escapeHtml(text);
+
+            // Simple highlight for each word in query
+            const words = query.replace(/["*]/g, '').split(/\s+/).filter(w => w && w !== 'OR' && w !== 'NOT');
+
+            words.forEach(word => {
+                const regex = new RegExp(`(${escapeRegex(word)})`, 'gi');
+                text = text.replace(regex, '<span class="search-highlight">$1</span>');
+            });
+
+            return text;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function escapeRegex(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        function exportMessages() {
+            const timeframe = document.getElementById('timeframe').value;
+            window.location.href = `/api/export/messages?timeframe=${timeframe}`;
+        }
+
+        // Focus search input on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('search-input').focus();
+        });
+    </script>
+</body>
+</html>

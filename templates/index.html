@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram Analytics Dashboard</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <!-- Sidebar -->
+    <nav class="sidebar">
+        <div class="logo">
+            <span class="logo-icon">📊</span>
+            <span class="logo-text">TG Analytics</span>
+        </div>
+        <ul class="nav-menu">
+            <li class="nav-item active">
+                <a href="/" class="nav-link">
+                    <span class="icon">📈</span>
+                    <span>Overview</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/users" class="nav-link">
+                    <span class="icon">👥</span>
+                    <span>Users</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/search" class="nav-link">
+                    <span class="icon">🔍</span>
+                    <span>Search</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/moderation" class="nav-link">
+                    <span class="icon">🛡️</span>
+                    <span>Moderation</span>
+                </a>
+            </li>
+        </ul>
+        <div class="sidebar-footer">
+            <div class="export-buttons">
+                <button onclick="exportUsers()" class="btn btn-sm">📥 Export Users</button>
+                <button onclick="exportMessages()" class="btn btn-sm">📥 Export Messages</button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Header -->
+        <header class="header">
+            <h1>Dashboard Overview</h1>
+            <div class="header-controls">
+                <select id="timeframe" class="select" onchange="loadAllData()">
+                    <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
+                    <option value="week">This Week</option>
+                    <option value="month" selected>This Month</option>
+                    <option value="year">This Year</option>
+                    <option value="all">All Time</option>
+                </select>
+                <button onclick="loadAllData()" class="btn btn-primary">🔄 Refresh</button>
+            </div>
+        </header>
+
+        <!-- Stats Cards -->
+        <section class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon">💬</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="total-messages">-</div>
+                    <div class="stat-label">Total Messages</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">👤</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="active-users">-</div>
+                    <div class="stat-label">Active Users</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">📅</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="messages-per-day">-</div>
+                    <div class="stat-label">Messages/Day</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🔗</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="links-count">-</div>
+                    <div class="stat-label">Links Shared</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🖼️</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="media-count">-</div>
+                    <div class="stat-label">Media Shared</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">↩️</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="replies-count">-</div>
+                    <div class="stat-label">Replies</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Charts Row 1 -->
+        <section class="charts-row">
+            <div class="chart-card large">
+                <div class="chart-header">
+                    <h3>Message Volume</h3>
+                    <select id="messages-granularity" class="select-sm" onchange="loadMessagesChart()">
+                        <option value="hour">Hourly</option>
+                        <option value="day" selected>Daily</option>
+                        <option value="week">Weekly</option>
+                    </select>
+                </div>
+                <div class="chart-container">
+                    <canvas id="messages-chart"></canvas>
+                </div>
+            </div>
+            <div class="chart-card">
+                <div class="chart-header">
+                    <h3>Active Users</h3>
+                </div>
+                <div class="chart-container">
+                    <canvas id="users-chart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Charts Row 2 -->
+        <section class="charts-row">
+            <div class="chart-card">
+                <div class="chart-header">
+                    <h3>Activity by Hour</h3>
+                </div>
+                <div class="chart-container">
+                    <canvas id="hourly-chart"></canvas>
+                </div>
+            </div>
+            <div class="chart-card">
+                <div class="chart-header">
+                    <h3>Activity by Day</h3>
+                </div>
+                <div class="chart-container">
+                    <canvas id="daily-chart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Heatmap -->
+        <section class="charts-row">
+            <div class="chart-card full-width">
+                <div class="chart-header">
+                    <h3>Activity Heatmap</h3>
+                    <span class="chart-subtitle">Hour of Day vs Day of Week</span>
+                </div>
+                <div class="heatmap-container" id="heatmap">
+                    <!-- Heatmap will be rendered here -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Top Lists -->
+        <section class="lists-row">
+            <div class="list-card">
+                <div class="list-header">
+                    <h3>🏆 Top Users</h3>
+                    <a href="/users" class="link">View All →</a>
+                </div>
+                <div class="list-content" id="top-users-list">
+                    <!-- List will be rendered here -->
+                </div>
+            </div>
+            <div class="list-card">
+                <div class="list-header">
+                    <h3>🔤 Top Words</h3>
+                </div>
+                <div class="list-content" id="top-words-list">
+                    <!-- List will be rendered here -->
+                </div>
+            </div>
+            <div class="list-card">
+                <div class="list-header">
+                    <h3>🌐 Top Domains</h3>
+                </div>
+                <div class="list-content" id="top-domains-list">
+                    <!-- List will be rendered here -->
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="/static/js/dashboard.js"></script>
+    <script>
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            loadAllData();
+        });
+    </script>
+</body>
+</html>
