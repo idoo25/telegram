@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+.venv
+result.json
+telegram.db
+telegram.db-shm
+telegram.db-wal
+.vscode/
+.idea/
