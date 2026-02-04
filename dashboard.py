@@ -1106,7 +1106,7 @@ def api_chat_messages():
         FROM messages m
         LEFT JOIN messages r ON m.reply_to_message_id = r.id
         WHERE {where_clause}
-        ORDER BY m.date DESC
+        ORDER BY m.date ASC
         LIMIT ? OFFSET ?
     """
     params.extend([limit, offset])
