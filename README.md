@@ -1,19 +1,25 @@
 # Telegram JSON Indexer & Analyzer
 
-A high-performance system for indexing, searching, and analyzing Telegram chat exports using SQLite FTS5 and advanced algorithms from Data Structures course.
+A high-performance system for indexing, searching, and analyzing Telegram chat exports using SQLite FTS5 and advanced algorithms from Data Structures course. Includes a full-featured **Web Dashboard** with **AI-powered search**.
 
 ```
-╔══════════════════════════════════════════════════════════════════╗
-║                    TELEGRAM CHAT ANALYZER                        ║
-║  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐       ║
-║  │  JSON   │───▶│ INDEXER │───▶│ SQLite  │───▶│ SEARCH  │       ║
-║  │ Export  │    │         │    │  + FTS5 │    │ ANALYZE │       ║
-║  └─────────┘    └─────────┘    └─────────┘    └─────────┘       ║
-╚══════════════════════════════════════════════════════════════════╝
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                         TELEGRAM CHAT ANALYZER                                ║
+║                                                                               ║
+║  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────────────────────┐    ║
+║  │  JSON   │───▶│ INDEXER │───▶│ SQLite  │───▶│     WEB DASHBOARD       │    ║
+║  │ Export  │    │ Bloom   │    │ + FTS5  │    │  ┌─────┬─────┬─────┐   │    ║
+║  │         │    │ Filter  │    │         │    │  │Stats│Users│Chat │   │    ║
+║  └─────────┘    └─────────┘    └─────────┘    │  ├─────┼─────┼─────┤   │    ║
+║                                               │  │Search│ AI  │Mod  │   │    ║
+║                                               │  └─────┴─────┴─────┘   │    ║
+║                                               └─────────────────────────┘    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 ```
 
 ## Features
 
+### Core Features
 - **Full-Text Search** - Fast search with Hebrew support using SQLite FTS5
 - **Fuzzy Search** - Find messages even with typos using trigram similarity
 - **Similar Message Detection** - LCS algorithm finds duplicates/reposts
@@ -23,17 +29,34 @@ A high-performance system for indexing, searching, and analyzing Telegram chat e
 - **Top-K Queries** - Heap-based O(n log k) instead of O(n log n)
 - **Percentiles** - O(n) median/percentiles using Selection algorithm
 
+### Web Dashboard
+- **Interactive Overview** - Charts, stats, activity graphs
+- **User Leaderboard** - Rankings with detailed user profiles
+- **Telegram-like Chat View** - Browse all messages like in Telegram
+- **Advanced Search** - Full-text + fuzzy search with filters
+- **AI-Powered Search** - Natural language queries (Hebrew/English)
+- **Moderation Analytics** - Links, mentions, domains analysis
+- **Database Updates** - Upload new JSON files via web UI
+
+### AI Search (Free Providers)
+- **Ollama** - Local LLM (recommended, 100% free)
+- **Groq** - Free API tier available
+- **Google Gemini** - Free API tier available
+
 ---
 
 ## Table of Contents
 
 1. [Installation](#installation)
 2. [Quick Start](#quick-start)
-3. [Architecture](#architecture)
-4. [Usage Guide](#usage-guide)
-5. [Algorithms](#algorithms)
-6. [API Reference](#api-reference)
-7. [Examples](#examples)
+3. [Web Dashboard](#web-dashboard)
+4. [AI Search](#ai-search)
+5. [Database Updates](#database-updates)
+6. [Architecture](#architecture)
+7. [Usage Guide](#usage-guide)
+8. [Algorithms](#algorithms)
+9. [API Reference](#api-reference)
+10. [Examples](#examples)
 
 ---
 
@@ -83,7 +106,16 @@ pip install numpy faiss-cpu sentence-transformers
 python indexer.py result.json --db telegram.db
 ```
 
-### Step 3: Search & Analyze
+### Step 3: Launch Web Dashboard
+
+```bash
+# Start the dashboard (recommended)
+python dashboard.py
+
+# Open in browser: http://localhost:5000
+```
+
+### Step 4: Search & Analyze (CLI)
 
 ```bash
 # Search messages
@@ -94,6 +126,199 @@ python analyzer.py --stats
 
 # Find similar messages
 python analyzer.py --similar
+```
+
+---
+
+## Web Dashboard
+
+The web dashboard provides a complete visual interface for analyzing your Telegram data.
+
+### Starting the Dashboard
+
+```bash
+python dashboard.py
+# Or with custom port:
+python dashboard.py --port 8080
+```
+
+### Dashboard Pages
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           WEB DASHBOARD                                  │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  📈 Overview      │  Main statistics, charts, activity graphs           │
+│                   │  - Total messages, users, links, media              │
+│                   │  - Daily/hourly activity charts                     │
+│                   │  - Top users leaderboard                            │
+│                                                                          │
+│  👥 Users         │  User leaderboard with detailed profiles            │
+│                   │  - Ranking by message count                         │
+│                   │  - User details modal (hourly activity)             │
+│                   │  - Export users to CSV                              │
+│                                                                          │
+│  💬 Chat          │  Telegram-like message view                         │
+│                   │  - Browse all messages chronologically              │
+│                   │  - Filter by user, date, media type                 │
+│                   │  - Click message to view full thread                │
+│                   │  - AI search with natural language                  │
+│                                                                          │
+│  🔍 Search        │  Advanced search interface                          │
+│                   │  - Full-text search (Hebrew supported)              │
+│                   │  - AI-powered natural language search               │
+│                   │  - Boolean operators (AND, OR, NOT)                 │
+│                   │  - Export search results                            │
+│                                                                          │
+│  🛡️ Moderation    │  Content analytics                                  │
+│                   │  - Top shared domains                               │
+│                   │  - Most mentioned users                             │
+│                   │  - Link sharers leaderboard                         │
+│                   │  - Word frequency analysis                          │
+│                                                                          │
+│  ⚙️ Settings      │  Database management                                │
+│                   │  - View database statistics                         │
+│                   │  - Upload new JSON files                            │
+│                   │  - Automatic duplicate detection                    │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Dashboard Features
+
+- **Dark Theme** - Modern dark UI, easy on the eyes
+- **RTL Support** - Full Hebrew/Arabic text support
+- **Responsive** - Works on mobile and desktop
+- **Real-time Charts** - Interactive Chart.js visualizations
+- **Export** - Download data as CSV/JSON
+
+---
+
+## AI Search
+
+Ask questions about your chat data in natural language (Hebrew or English).
+
+### Setup AI Provider (Free Options)
+
+#### Option 1: Ollama (Recommended - 100% Local & Free)
+
+```bash
+# Install Ollama (https://ollama.ai)
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# Pull a model
+ollama pull llama3.2
+
+# Start Ollama server
+ollama serve
+```
+
+#### Option 2: Groq (Free API Tier)
+
+```bash
+# Get free API key from https://console.groq.com
+export GROQ_API_KEY="your_api_key"
+```
+
+#### Option 3: Google Gemini (Free API Tier)
+
+```bash
+# Get free API key from https://makersuite.google.com/app/apikey
+export GEMINI_API_KEY="your_api_key"
+```
+
+### AI Search Examples
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  🤖 AI Search - Natural Language Queries                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  Query: "מי שלח הכי הרבה הודעות?"                                       │
+│  Answer: המשתמש הפעיל ביותר הוא דני עם 5,432 הודעות                     │
+│                                                                          │
+│  Query: "מתי היו הכי הרבה הודעות?"                                      │
+│  Answer: היום הפעיל ביותר היה 15.03.2024 עם 342 הודעות                  │
+│                                                                          │
+│  Query: "Who mentioned @admin the most?"                                 │
+│  Answer: User "Mike" mentioned @admin 47 times                           │
+│                                                                          │
+│  Query: "הראה הודעות עם קישורים מהשבוע האחרון"                          │
+│  Answer: נמצאו 23 הודעות עם קישורים...                                  │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### AI Search API
+
+```python
+from ai_search import AISearchEngine
+
+# Initialize with Ollama (local)
+ai = AISearchEngine('telegram.db', provider='ollama')
+
+# Or with Groq
+ai = AISearchEngine('telegram.db', provider='groq', api_key='your_key')
+
+# Search
+result = ai.search("מי הכי פעיל בלילה?")
+print(result['answer'])  # Natural language answer
+print(result['sql'])     # Generated SQL query
+print(result['results']) # Raw data
+```
+
+---
+
+## Database Updates
+
+Update your database with new JSON exports without losing existing data.
+
+### Via Web UI
+
+1. Go to **Settings** page in the dashboard
+2. Drag & drop your new `result.json` file
+3. Wait for processing (duplicate detection automatic)
+4. See summary of new messages added
+
+### Via CLI
+
+```bash
+# Update existing database with new JSON
+python indexer.py new_export.json --db telegram.db --update
+
+# What happens:
+# 1. Loads existing message IDs into Bloom filter (O(n))
+# 2. For each message in JSON:
+#    - Check if exists using Bloom filter (O(1))
+#    - Only insert if new
+# 3. Re-index FTS if needed
+# 4. Report: X new messages, Y duplicates skipped
+```
+
+### Incremental Update Process
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    INCREMENTAL UPDATE PROCESS                            │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  Existing DB                    New JSON                                 │
+│  ┌─────────────┐               ┌─────────────┐                          │
+│  │ msg_1 ✓     │               │ msg_1       │ → Skip (duplicate)       │
+│  │ msg_2 ✓     │               │ msg_2       │ → Skip (duplicate)       │
+│  │ msg_3 ✓     │               │ msg_5  NEW  │ → Insert                 │
+│  │ msg_4 ✓     │               │ msg_6  NEW  │ → Insert                 │
+│  └─────────────┘               └─────────────┘                          │
+│         │                             │                                  │
+│         │      Bloom Filter           │                                  │
+│         │      ┌───────────┐          │                                  │
+│         └─────▶│ O(1) test │◀─────────┘                                  │
+│                └───────────┘                                             │
+│                                                                          │
+│  Result: Only msg_5 and msg_6 added (fast!)                             │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -180,11 +405,25 @@ JSON Message                 Database Tables              Search/Analytics
 ```
 telegram/
 │
+├── dashboard.py        # 🌐 Web Dashboard (Flask)
+│   └── Routes: /, /users, /chat, /search, /moderation, /settings
+│   └── API: /api/overview, /api/users, /api/search, /api/update, etc.
+│
+├── ai_search.py        # 🤖 AI-Powered Search
+│   └── AISearchEngine class
+│       ├── Natural language to SQL
+│       ├── Ollama/Groq/Gemini providers
+│       └── Hebrew/English support
+│
 ├── indexer.py          # JSON → SQLite indexer
-│   └── OptimizedIndexer class
-│       ├── Batch processing (100x faster)
-│       ├── Bloom filter (duplicate detection)
-│       └── Graph builder (reply threads)
+│   ├── OptimizedIndexer class
+│   │   ├── Batch processing (100x faster)
+│   │   ├── Bloom filter (duplicate detection)
+│   │   └── Graph builder (reply threads)
+│   └── IncrementalIndexer class
+│       ├── Update existing database
+│       ├── Bloom filter duplicate check
+│       └── Only insert new messages
 │
 ├── search.py           # Search interface
 │   └── TelegramSearch class
@@ -215,6 +454,18 @@ telegram/
 │   ├── RankTree        # O(log n) rank queries
 │   └── BucketSort      # Time histograms
 │
+├── templates/          # 🎨 HTML Templates
+│   ├── index.html      # Overview dashboard
+│   ├── users.html      # User leaderboard
+│   ├── chat.html       # Telegram-like chat view
+│   ├── search.html     # Search interface
+│   ├── moderation.html # Content analytics
+│   └── settings.html   # Settings & DB update
+│
+├── static/             # 📁 Static assets
+│   ├── css/style.css   # Dashboard styles
+│   └── js/dashboard.js # Dashboard scripts
+│
 ├── vector_search.py    # Optional: Semantic search
 │   └── VectorSearch class (requires FAISS)
 │
@@ -225,6 +476,19 @@ telegram/
 ---
 
 ## Usage Guide
+
+### Web Dashboard (Recommended)
+
+```bash
+# Start the dashboard
+python dashboard.py
+
+# Custom port
+python dashboard.py --port 8080
+
+# Custom database
+python dashboard.py --db my_chat.db
+```
 
 ### Indexing
 
@@ -240,6 +504,9 @@ python indexer.py result.json --build-trigrams
 
 # Larger batch size (faster for big files)
 python indexer.py result.json --batch-size 5000
+
+# Update existing database with new JSON (incremental)
+python indexer.py new_export.json --db telegram.db --update
 ```
 
 ### Searching
@@ -486,6 +753,84 @@ Time: O(V + E)
 ---
 
 ## API Reference
+
+### Dashboard REST API
+
+The web dashboard exposes a REST API for all operations:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         REST API ENDPOINTS                               │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  GET  /api/overview           Overview statistics                        │
+│       ?timeframe=month        (today|yesterday|week|month|year|all)      │
+│                                                                          │
+│  GET  /api/users              User leaderboard                           │
+│       ?timeframe=month        Timeframe filter                           │
+│       &limit=100              Max users                                  │
+│                                                                          │
+│  GET  /api/user/<user_id>     User details                              │
+│       ?timeframe=month        Includes hourly activity                   │
+│                                                                          │
+│  GET  /api/search             Full-text search                           │
+│       ?q=search_term          Search query                               │
+│       &timeframe=all          Timeframe filter                           │
+│       &limit=20&offset=0      Pagination                                 │
+│                                                                          │
+│  POST /api/ai/search          AI-powered search                          │
+│       {"query": "..."}        Natural language query                     │
+│                                                                          │
+│  GET  /api/chat/messages      Chat messages                              │
+│       ?limit=50&offset=0      Pagination                                 │
+│       &user_id=...            Filter by user                             │
+│       &from_date=...          Date range                                 │
+│                                                                          │
+│  GET  /api/chat/thread/<id>   Get conversation thread                    │
+│                               Returns full thread with DFS               │
+│                                                                          │
+│  GET  /api/top/domains        Top shared domains                         │
+│  GET  /api/top/mentions       Top mentioned users                        │
+│  GET  /api/top/words          Most frequent words                        │
+│                                                                          │
+│  POST /api/update             Update database with JSON                  │
+│       (multipart form)        File upload                                │
+│                                                                          │
+│  GET  /api/db/stats           Database statistics                        │
+│                               Size, counts, date range                   │
+│                                                                          │
+│  GET  /api/export/users       Export users as CSV                        │
+│  GET  /api/export/messages    Export messages as CSV                     │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│                    ALGORITHM-POWERED ENDPOINTS                           │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  GET  /api/similar/<id>       Find similar messages (LCS algorithm)      │
+│       ?threshold=0.7          Similarity threshold                       │
+│       ?limit=10               Max results                                │
+│       Complexity: O(n*m)      n=sample, m=avg length                     │
+│                                                                          │
+│  GET  /api/analytics/similar  Find all similar pairs in DB               │
+│       ?threshold=0.8          Similarity threshold                       │
+│       Algorithm: LCS          O(n² * m) with early termination           │
+│                                                                          │
+│  GET  /api/user/rank/<id>     Get user rank (RankTree)                   │
+│       Complexity: O(log n)    vs O(n) SQL scan                           │
+│                                                                          │
+│  GET  /api/user/by-rank/<k>   Get k-th ranked user (RankTree)            │
+│       Algorithm: select(k)    O(log n)                                   │
+│                                                                          │
+│  GET  /api/analytics/histogram Activity histogram (Bucket Sort)          │
+│       ?bucket=86400           Bucket size in seconds                     │
+│       Complexity: O(n + k)    k=number of buckets                        │
+│                                                                          │
+│  GET  /api/analytics/percentiles Message length stats (Selection)        │
+│       Algorithm: Quickselect  O(n) guaranteed                            │
+│       Returns: min,max,median,p25,p75,p90,p95,p99                        │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
 
 ### TelegramSearch
 

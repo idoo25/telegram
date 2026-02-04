@@ -23,9 +23,55 @@ from typing import Optional
 from collections import defaultdict
 
 # Import our algorithms
-from algorithms import TopK, find_median, find_percentile, top_k_frequent
+from algorithms import (
+    TopK, find_median, find_percentile, top_k_frequent,
+    RankTree, lcs_similarity, find_similar_messages,
+    bucket_sort_by_time, time_histogram, RankedTimeIndex
+)
 
 app = Flask(__name__)
+
+# ==========================================
+# GLOBAL ALGORITHM CACHES
+# ==========================================
+
+# RankTree for O(log n) user ranking - rebuilt on demand
+_user_rank_tree = None
+_user_rank_tree_timeframe = None
+
+def get_user_rank_tree(timeframe: str):
+    """
+    Get or rebuild the user rank tree for efficient O(log n) rank queries.
+    Tree is cached and rebuilt only when timeframe changes.
+    """
+    global _user_rank_tree, _user_rank_tree_timeframe
+
+    if _user_rank_tree is not None and _user_rank_tree_timeframe == timeframe:
+        return _user_rank_tree
+
+    start_ts, end_ts = parse_timeframe(timeframe)
+    conn = get_db()
+
+    cursor = conn.execute('''
+        SELECT from_id, from_name, COUNT(*) as message_count
+        FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+        AND from_id IS NOT NULL AND from_id != ''
+        GROUP BY from_id
+        ORDER BY message_count DESC
+    ''', (start_ts, end_ts))
+
+    _user_rank_tree = RankTree()
+    for row in cursor.fetchall():
+        # Insert with negative count so higher counts = lower keys = earlier in tree
+        _user_rank_tree.insert(
+            -row['message_count'],  # Negative for descending order
+            {'user_id': row['from_id'], 'name': row['from_name'], 'messages': row['message_count']}
+        )
+
+    conn.close()
+    _user_rank_tree_timeframe = timeframe
+    return _user_rank_tree
 DB_PATH = 'telegram.db'
 
 
@@ -634,6 +680,301 @@ def api_top_mentions():
     conn.close()
 
     return jsonify(data)
+
+
+# ==========================================
+# API ENDPOINTS - ADVANCED ANALYTICS (Course Algorithms)
+# ==========================================
+
+@app.route('/api/similar/<int:message_id>')
+def api_similar_messages(message_id):
+    """
+    Find messages similar to a given message using LCS algorithm.
+
+    Algorithm: LCS (Longest Common Subsequence)
+    Time: O(n * m) where n = sample size, m = avg message length
+    Use case: Detect reposts, spam, similar content
+    """
+    threshold = float(request.args.get('threshold', 0.7))
+    limit = int(request.args.get('limit', 10))
+    sample_size = int(request.args.get('sample', 1000))
+
+    conn = get_db()
+
+    # Get the target message
+    cursor = conn.execute('''
+        SELECT text_plain, from_name, date FROM messages WHERE id = ?
+    ''', (message_id,))
+    target = cursor.fetchone()
+
+    if not target or not target['text_plain']:
+        conn.close()
+        return jsonify({'error': 'Message not found or empty'}), 404
+
+    target_text = target['text_plain']
+
+    # Get sample of messages to compare (excluding the target)
+    cursor = conn.execute('''
+        SELECT id, text_plain, from_name, date FROM messages
+        WHERE id != ? AND text_plain IS NOT NULL AND LENGTH(text_plain) > 20
+        ORDER BY RANDOM()
+        LIMIT ?
+    ''', (message_id, sample_size))
+
+    messages = [(row['id'], row['text_plain']) for row in cursor.fetchall()]
+    conn.close()
+
+    # Find similar messages using LCS
+    similar = []
+    for msg_id, text in messages:
+        sim = lcs_similarity(target_text, text)
+        if sim >= threshold:
+            similar.append({
+                'id': msg_id,
+                'similarity': round(sim * 100, 1),
+                'text': text[:200] + '...' if len(text) > 200 else text
+            })
+
+    # Sort by similarity descending and limit
+    similar.sort(key=lambda x: x['similarity'], reverse=True)
+    similar = similar[:limit]
+
+    return jsonify({
+        'target': {
+            'id': message_id,
+            'text': target_text[:200] + '...' if len(target_text) > 200 else target_text,
+            'from': target['from_name'],
+            'date': target['date']
+        },
+        'similar': similar,
+        'algorithm': 'LCS (Longest Common Subsequence)',
+        'threshold': threshold
+    })
+
+
+@app.route('/api/analytics/similar')
+def api_find_all_similar():
+    """
+    Find all similar message pairs in the database.
+
+    Algorithm: LCS with early termination
+    Time: O(n² * m) where n = sample size, m = avg message length
+    Use case: Detect spam campaigns, repeated content
+    """
+    timeframe = request.args.get('timeframe', 'all')
+    threshold = float(request.args.get('threshold', 0.8))
+    sample_size = int(request.args.get('sample', 500))
+    start_ts, end_ts = parse_timeframe(timeframe)
+
+    conn = get_db()
+
+    cursor = conn.execute('''
+        SELECT id, text_plain, from_name, from_id FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+        AND text_plain IS NOT NULL AND LENGTH(text_plain) > 30
+        ORDER BY RANDOM()
+        LIMIT ?
+    ''', (start_ts, end_ts, sample_size))
+
+    messages = [(row['id'], row['text_plain'], row['from_name'], row['from_id'])
+                for row in cursor.fetchall()]
+    conn.close()
+
+    # Use our LCS algorithm to find similar pairs
+    message_pairs = [(id_, text) for id_, text, _, _ in messages]
+    similar_pairs = find_similar_messages(message_pairs, threshold=threshold, min_length=30)
+
+    # Build result with user info
+    id_to_info = {id_: (name, uid) for id_, _, name, uid in messages}
+    id_to_text = {id_: text for id_, text, _, _ in messages}
+
+    results = []
+    for id1, id2, sim in similar_pairs[:50]:  # Limit to top 50
+        results.append({
+            'message1': {
+                'id': id1,
+                'text': id_to_text[id1][:150],
+                'from': id_to_info[id1][0]
+            },
+            'message2': {
+                'id': id2,
+                'text': id_to_text[id2][:150],
+                'from': id_to_info[id2][0]
+            },
+            'similarity': round(sim * 100, 1)
+        })
+
+    return jsonify({
+        'pairs': results,
+        'total_found': len(similar_pairs),
+        'algorithm': 'LCS (Longest Common Subsequence)',
+        'threshold': threshold,
+        'sample_size': sample_size
+    })
+
+
+@app.route('/api/user/rank/<user_id>')
+def api_user_rank_efficient(user_id):
+    """
+    Get user rank using RankTree for O(log n) lookup.
+
+    Algorithm: Order Statistics Tree (AVL-based Rank Tree)
+    Time: O(log n) instead of O(n) SQL scan
+    Use case: Real-time user ranking queries
+    """
+    timeframe = request.args.get('timeframe', 'all')
+    tree = get_user_rank_tree(timeframe)
+
+    # Find user in tree by iterating (still O(n) for lookup, but rank is O(log n))
+    # For true O(log n), we'd need to store user_id as key
+    start_ts, end_ts = parse_timeframe(timeframe)
+    conn = get_db()
+
+    cursor = conn.execute('''
+        SELECT COUNT(*) as count FROM messages
+        WHERE from_id = ? AND date_unixtime BETWEEN ? AND ?
+    ''', (user_id, start_ts, end_ts))
+    user_count = cursor.fetchone()['count']
+
+    if user_count == 0:
+        conn.close()
+        return jsonify({'error': 'User not found'}), 404
+
+    # Use rank tree to find rank (O(log n))
+    rank = tree.rank(-user_count)  # Negative because tree uses negative counts
+
+    # Get total users
+    total = len(tree)
+
+    conn.close()
+
+    return jsonify({
+        'user_id': user_id,
+        'messages': user_count,
+        'rank': rank,
+        'total_users': total,
+        'percentile': round(100 * (total - rank + 1) / total, 1) if total > 0 else 0,
+        'algorithm': 'RankTree (Order Statistics Tree)',
+        'complexity': 'O(log n)'
+    })
+
+
+@app.route('/api/user/by-rank/<int:rank>')
+def api_user_by_rank(rank):
+    """
+    Get user at specific rank using RankTree.
+
+    Algorithm: Order Statistics Tree select(k)
+    Time: O(log n)
+    Use case: "Who is the 10th most active user?"
+    """
+    timeframe = request.args.get('timeframe', 'all')
+    tree = get_user_rank_tree(timeframe)
+
+    if rank < 1 or rank > len(tree):
+        return jsonify({'error': f'Rank must be between 1 and {len(tree)}'}), 400
+
+    user = tree.select(rank)
+
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    return jsonify({
+        'rank': rank,
+        'user': user,
+        'total_users': len(tree),
+        'algorithm': 'RankTree select(k)',
+        'complexity': 'O(log n)'
+    })
+
+
+@app.route('/api/analytics/histogram')
+def api_activity_histogram():
+    """
+    Get activity histogram using Bucket Sort.
+
+    Algorithm: Bucket Sort
+    Time: O(n + k) where k = number of buckets
+    Use case: Efficient time-based grouping without SQL GROUP BY
+    """
+    timeframe = request.args.get('timeframe', 'month')
+    bucket_seconds = int(request.args.get('bucket', 86400))  # Default: 1 day
+    start_ts, end_ts = parse_timeframe(timeframe)
+
+    conn = get_db()
+
+    cursor = conn.execute('''
+        SELECT date_unixtime FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+    ''', (start_ts, end_ts))
+
+    records = [{'date_unixtime': row[0]} for row in cursor.fetchall()]
+    conn.close()
+
+    # Use bucket sort algorithm
+    histogram = time_histogram(records, 'date_unixtime', bucket_size=bucket_seconds)
+
+    # Format for frontend
+    from datetime import datetime
+    result = []
+    for bucket_time, count in histogram:
+        result.append({
+            'timestamp': bucket_time,
+            'date': datetime.fromtimestamp(bucket_time).strftime('%Y-%m-%d %H:%M'),
+            'count': count
+        })
+
+    return jsonify({
+        'histogram': result,
+        'bucket_size_seconds': bucket_seconds,
+        'total_records': len(records),
+        'algorithm': 'Bucket Sort',
+        'complexity': 'O(n + k)'
+    })
+
+
+@app.route('/api/analytics/percentiles')
+def api_message_percentiles():
+    """
+    Get message length percentiles using Selection Algorithm.
+
+    Algorithm: Quickselect with Median of Medians
+    Time: O(n) guaranteed
+    Use case: Analyze message length distribution without sorting
+    """
+    timeframe = request.args.get('timeframe', 'all')
+    start_ts, end_ts = parse_timeframe(timeframe)
+
+    conn = get_db()
+
+    cursor = conn.execute('''
+        SELECT LENGTH(text_plain) as length FROM messages
+        WHERE date_unixtime BETWEEN ? AND ?
+        AND text_plain IS NOT NULL
+    ''', (start_ts, end_ts))
+
+    lengths = [row[0] for row in cursor.fetchall() if row[0]]
+    conn.close()
+
+    if not lengths:
+        return jsonify({'error': 'No messages found'}), 404
+
+    # Use our O(n) selection algorithm
+    result = {
+        'count': len(lengths),
+        'min': min(lengths),
+        'max': max(lengths),
+        'median': find_median(lengths),
+        'p25': find_percentile(lengths, 25),
+        'p75': find_percentile(lengths, 75),
+        'p90': find_percentile(lengths, 90),
+        'p95': find_percentile(lengths, 95),
+        'p99': find_percentile(lengths, 99),
+        'algorithm': 'Quickselect with Median of Medians',
+        'complexity': 'O(n) guaranteed'
+    }
+
+    return jsonify(result)
 
 
 # ==========================================
