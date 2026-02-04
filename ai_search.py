@@ -182,14 +182,20 @@ SQLite query:"""
         # Extract SQL from response
         sql = response.strip()
 
-        # Clean up common issues
-        sql = re.sub(r'^```sql\s*', '', sql)
-        sql = re.sub(r'\s*```$', '', sql)
+        # Clean up common issues - handle various code block formats
+        sql = re.sub(r'^```\w*\s*', '', sql)  # Remove opening ```sql or ```
+        sql = re.sub(r'\s*```$', '', sql)      # Remove closing ```
+        sql = re.sub(r'^```', '', sql, flags=re.MULTILINE)  # Remove any remaining ```
         sql = sql.strip()
+
+        # Try to extract SELECT statement if there's text before it
+        select_match = re.search(r'(SELECT\s+.+?)(?:;|$)', sql, re.IGNORECASE | re.DOTALL)
+        if select_match:
+            sql = select_match.group(1).strip()
 
         # Ensure it's a SELECT query for safety
         if not sql.upper().startswith("SELECT"):
-            raise ValueError("AI generated non-SELECT query")
+            raise ValueError(f"AI generated non-SELECT query: {sql[:100]}")
 
         return sql
 
