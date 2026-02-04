@@ -316,7 +316,7 @@
             resultDiv.style.display = 'block';
             const loadingMessages = {
                 'context': 'קורא הודעות ומנתח...',
-                'semantic': 'מחפש לפי משמעות...',
+                'semantic': 'מחפש לפי משמעות + שולח ל-AI...',
                 'sql': 'מחפש...',
                 'auto': 'מחפש...'
             };
@@ -345,8 +345,8 @@
                             html += `<br>🔑 מילות מפתח: ${data.keywords_used.slice(0, 5).join(', ')}`;
                         }
                         html += `</small>`;
-                    } else if (data.mode === 'semantic') {
-                        html += `<br><br><small style="color:var(--text-muted);">🔮 Semantic Search: נמצאו ${data.count} הודעות דומות</small>`;
+                    } else if (data.mode === 'semantic_ai' || data.mode === 'semantic') {
+                        html += `<br><br><small style="color:var(--text-muted);">🔮 Semantic + AI: נמצאו ${data.count} הודעות דומות, AI ניתח ועונה</small>`;
                     }
 
                     answerDiv.innerHTML = html;

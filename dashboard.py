@@ -1285,7 +1285,7 @@ def api_ai_search():
     if not query:
         return jsonify({'error': 'Query required'})
 
-    # Semantic mode: Use pre-computed embeddings for similarity search
+    # Semantic mode: Use pre-computed embeddings + AI reasoning
     if mode == 'semantic':
         if not HAS_SEMANTIC_SEARCH:
             return jsonify({'error': 'Semantic search not available. Install sentence-transformers.'})
@@ -1293,14 +1293,24 @@ def api_ai_search():
             ss = get_semantic_search()
             if not ss.is_available():
                 return jsonify({'error': 'embeddings.db not found. Run the Colab notebook first.'})
-            results = ss.search_with_full_text(query, limit=30)
-            return jsonify({
-                'query': query,
-                'mode': 'semantic',
-                'results': results,
-                'count': len(results),
-                'answer': f"נמצאו {len(results)} הודעות דומות סמנטית לשאילתה."
-            })
+
+            # Get AI engine for reasoning
+            ai_engine = get_ai_engine()
+
+            if ai_engine:
+                # Semantic search + AI reasoning
+                result = ss.search_with_ai_answer(query, ai_engine, limit=30)
+                return jsonify(result)
+            else:
+                # Just semantic search without AI reasoning
+                results = ss.search_with_full_text(query, limit=30)
+                return jsonify({
+                    'query': query,
+                    'mode': 'semantic',
+                    'results': results,
+                    'count': len(results),
+                    'answer': f"נמצאו {len(results)} הודעות דומות סמנטית. (AI לא זמין לניתוח)"
+                })
         except Exception as e:
             return jsonify({'error': f'Semantic search error: {str(e)}'})
 

@@ -69,6 +69,9 @@ class SemanticSearch:
 
         # Stack into numpy array for fast computation
         self.embeddings = np.vstack(self.embeddings)
+        # Normalize embeddings for cosine similarity
+        norms = np.linalg.norm(self.embeddings, axis=1, keepdims=True)
+        self.embeddings = self.embeddings / norms
         self.embeddings_loaded = True
         print(f"Loaded {len(self.message_ids)} embeddings")
 
@@ -140,6 +143,66 @@ class SemanticSearch:
 
         conn.close()
         return results
+
+    def search_with_ai_answer(self, query: str, ai_engine, limit: int = 30) -> Dict[str, Any]:
+        """
+        Search semantically and send results to AI for reasoning.
+
+        This combines the power of:
+        1. Semantic search (finds relevant messages by meaning)
+        2. AI reasoning (reads messages and answers the question)
+        """
+        results = self.search_with_full_text(query, limit=limit)
+
+        if not results:
+            return {
+                'query': query,
+                'answer': 'לא נמצאו הודעות רלוונטיות',
+                'mode': 'semantic_ai',
+                'results': [],
+                'count': 0
+            }
+
+        # Build context from semantic search results
+        context_text = "\n".join([
+            f"[{r.get('date', '')}] {r.get('from_name', 'Unknown')}: {r.get('text', '')[:500]}"
+            for r in results if r.get('text')
+        ])
+
+        # Send to AI for reasoning
+        reason_prompt = f"""You are analyzing a Telegram chat history to answer a question.
+The messages below were found using semantic search - they are the most relevant to the question.
+Read them carefully and provide a comprehensive answer.
+
+Question: {query}
+
+Relevant messages (found by semantic similarity):
+{context_text}
+
+Based on these messages, answer the question in Hebrew.
+If you can find the answer, provide it clearly.
+If you can infer information from context clues, do so.
+Cite specific messages when relevant.
+
+Answer:"""
+
+        try:
+            if hasattr(ai_engine, '_call_gemini'):
+                answer = ai_engine._call_gemini(reason_prompt)
+            elif hasattr(ai_engine, '_call_groq'):
+                answer = ai_engine._call_groq(reason_prompt)
+            else:
+                answer = "AI engine not available for reasoning"
+        except Exception as e:
+            answer = f"שגיאה ב-AI: {str(e)}"
+
+        return {
+            'query': query,
+            'answer': answer,
+            'mode': 'semantic_ai',
+            'results': results,
+            'count': len(results)
+        }
 
     def is_available(self) -> bool:
         """Check if semantic search is available."""
