@@ -87,6 +87,7 @@
                            onkeypress="if(event.key==='Enter') aiSearch()">
                     <select id="ai-mode" style="padding: var(--spacing-md); border-radius: var(--radius-md); background: var(--bg-sidebar); color: var(--text-primary); border: 1px solid var(--border-color);">
                         <option value="auto">Auto</option>
+                        <option value="semantic">Semantic (חיפוש לפי משמעות)</option>
                         <option value="context">Context (AI קורא הודעות)</option>
                         <option value="sql">SQL Search</option>
                     </select>
@@ -104,7 +105,8 @@
                 </div>
                 <div style="margin-top: var(--spacing-sm); font-size: 0.75rem; color: var(--text-muted);">
                     💡 SQL: "מי שלח הכי הרבה?" | "מתי היו הכי הרבה הודעות?"<br>
-                    🧠 Context: "באיזה בית חולים האחות עובדת?" | "מה יוסי חושב על X?" (AI קורא ומבין הקשר)
+                    🔮 Semantic: "שיחות על עבודה" | "הודעות עצובות" (חיפוש לפי משמעות, לא מילים)<br>
+                    🧠 Context: "באיזה בית חולים האחות עובדת?" (AI קורא ומבין הקשר)
                 </div>
             </div>
         </section>
@@ -312,7 +314,13 @@
             const sqlPre = document.getElementById('ai-sql');
 
             resultDiv.style.display = 'block';
-            answerDiv.textContent = mode === 'context' ? 'קורא הודעות ומנתח...' : 'מחפש...';
+            const loadingMessages = {
+                'context': 'קורא הודעות ומנתח...',
+                'semantic': 'מחפש לפי משמעות...',
+                'sql': 'מחפש...',
+                'auto': 'מחפש...'
+            };
+            answerDiv.textContent = loadingMessages[mode] || 'מחפש...';
             sqlPre.textContent = '';
 
             try {
@@ -337,6 +345,8 @@
                             html += `<br>🔑 מילות מפתח: ${data.keywords_used.slice(0, 5).join(', ')}`;
                         }
                         html += `</small>`;
+                    } else if (data.mode === 'semantic') {
+                        html += `<br><br><small style="color:var(--text-muted);">🔮 Semantic Search: נמצאו ${data.count} הודעות דומות</small>`;
                     }
 
                     answerDiv.innerHTML = html;
@@ -365,7 +375,7 @@
                 <div class="search-result-item">
                     <div class="search-result-header">
                         <span class="search-result-author">${escapeHtml(result.from_name || 'Unknown')}</span>
-                        <span class="search-result-date">${result.date || ''}</span>
+                        <span class="search-result-date">${result.date || ''}${result.score ? ` (${(result.score * 100).toFixed(0)}% דמיון)` : ''}</span>
                     </div>
                     <div class="search-result-text">${escapeHtml(result.text || '')}</div>
                 </div>

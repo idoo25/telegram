@@ -36,6 +36,14 @@ from algorithms import (
     bucket_sort_by_time, time_histogram, RankedTimeIndex
 )
 
+# Import semantic search (uses pre-computed embeddings)
+try:
+    from semantic_search import get_semantic_search
+    HAS_SEMANTIC_SEARCH = True
+except ImportError:
+    HAS_SEMANTIC_SEARCH = False
+    get_semantic_search = None
+
 app = Flask(__name__)
 DB_PATH = 'telegram.db'
 
@@ -1272,10 +1280,29 @@ def api_ai_search():
     """AI-powered natural language search."""
     data = request.get_json()
     query = data.get('query', '')
-    mode = data.get('mode', 'auto')  # 'auto', 'sql', or 'context'
+    mode = data.get('mode', 'auto')  # 'auto', 'sql', 'context', or 'semantic'
 
     if not query:
         return jsonify({'error': 'Query required'})
+
+    # Semantic mode: Use pre-computed embeddings for similarity search
+    if mode == 'semantic':
+        if not HAS_SEMANTIC_SEARCH:
+            return jsonify({'error': 'Semantic search not available. Install sentence-transformers.'})
+        try:
+            ss = get_semantic_search()
+            if not ss.is_available():
+                return jsonify({'error': 'embeddings.db not found. Run the Colab notebook first.'})
+            results = ss.search_with_full_text(query, limit=30)
+            return jsonify({
+                'query': query,
+                'mode': 'semantic',
+                'results': results,
+                'count': len(results),
+                'answer': f"נמצאו {len(results)} הודעות דומות סמנטית לשאילתה."
+            })
+        except Exception as e:
+            return jsonify({'error': f'Semantic search error: {str(e)}'})
 
     engine = get_ai_engine()
 
