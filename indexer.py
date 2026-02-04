@@ -463,7 +463,7 @@ class IncrementalIndexer:
     def _load_existing_ids(self) -> None:
         """Load existing message IDs into Bloom filter for O(1) duplicate detection."""
         cursor = self.conn.cursor()
-        cursor.execute("SELECT message_id FROM messages")
+        cursor.execute("SELECT id FROM messages")
 
         count = 0
         for row in cursor:
