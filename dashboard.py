@@ -1272,6 +1272,7 @@ def api_ai_search():
     """AI-powered natural language search."""
     data = request.get_json()
     query = data.get('query', '')
+    mode = data.get('mode', 'auto')  # 'auto', 'sql', or 'context'
 
     if not query:
         return jsonify({'error': 'Query required'})
@@ -1283,7 +1284,19 @@ def api_ai_search():
         return fallback_ai_search(query)
 
     try:
-        result = engine.search(query, generate_answer=True)
+        # Context mode: AI reads messages and reasons over them
+        if mode == 'context':
+            result = engine.context_search(query)
+        # SQL mode: Generate SQL and execute
+        elif mode == 'sql':
+            result = engine.search(query, generate_answer=True)
+        # Auto mode: Try SQL first, fall back to context if no results
+        else:
+            result = engine.search(query, generate_answer=True)
+            # If no results or error, try context search
+            if result.get('count', 0) == 0 or 'error' in result:
+                result = engine.context_search(query)
+
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e), 'query': query})

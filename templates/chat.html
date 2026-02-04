@@ -437,7 +437,12 @@
             <h3>AI Search</h3>
             <div class="ai-search-box">
                 <input type="text" id="ai-query" class="ai-search-input"
-                       placeholder="Ask a question... (Who sent the most messages? When was peak activity?)">
+                       placeholder="Ask a question... (באיזה בית חולים האחות עובדת?)">
+                <select id="ai-mode" style="padding: 10px; border-radius: 20px; background: #2c333d; color: #fff; border: 1px solid #4db8ff;">
+                    <option value="auto">Auto</option>
+                    <option value="context">Context (AI reads messages)</option>
+                    <option value="sql">SQL Search</option>
+                </select>
                 <button class="ai-search-btn" onclick="askAI()">Ask</button>
             </div>
             <div id="ai-answer" class="ai-answer"></div>
@@ -772,31 +777,40 @@
         // AI Search
         async function askAI() {
             const query = document.getElementById('ai-query').value.trim();
+            const mode = document.getElementById('ai-mode').value;
             if (!query) return;
 
             const answerDiv = document.getElementById('ai-answer');
             answerDiv.classList.add('visible');
-            answerDiv.innerHTML = '<div class="loading-spinner"></div> Searching...';
+            answerDiv.innerHTML = '<div class="loading-spinner"></div> ' +
+                (mode === 'context' ? 'Reading messages and reasoning...' : 'Searching...');
 
             try {
                 const response = await fetch('/api/ai/search', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query })
+                    body: JSON.stringify({ query, mode })
                 });
                 const data = await response.json();
 
                 if (data.error) {
-                    answerDiv.innerHTML = `<strong>Error:</strong> ${data.error}`;
+                    answerDiv.innerHTML = `<strong>שגיאה:</strong> ${data.error}`;
                 } else {
-                    let html = `<strong>Answer:</strong> ${escapeHtml(data.answer || 'No answer found')}`;
-                    if (data.results && data.results.length > 0) {
-                        html += `<br><br><strong>Found ${data.count || data.results.length} results</strong>`;
+                    let html = `<strong>תשובה:</strong><br>${escapeHtml(data.answer || 'לא נמצאה תשובה')}`;
+
+                    // Show mode info
+                    if (data.mode === 'context_search') {
+                        html += `<br><br><small style="color:#91979e;">🧠 Context Mode: Read ${data.context_messages} messages`;
+                        if (data.context_user) html += ` from "${data.context_user}"`;
+                        html += `</small>`;
+                    } else if (data.sql) {
+                        html += `<br><br><small style="color:#91979e;">🔍 SQL Mode: Found ${data.count || 0} results</small>`;
+                        html += `<br><details><summary style="cursor:pointer;color:#4db8ff;">Show SQL</summary><code style="font-size:11px;">${escapeHtml(data.sql)}</code></details>`;
                     }
                     answerDiv.innerHTML = html;
                 }
             } catch (error) {
-                answerDiv.innerHTML = `<strong>Error:</strong> ${error.message}`;
+                answerDiv.innerHTML = `<strong>שגיאה:</strong> ${error.message}`;
             }
         }
 

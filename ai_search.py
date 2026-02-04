@@ -248,6 +248,103 @@ If showing a list, format it nicely. Keep it brief but informative."""
 
         return answer
 
+    def context_search(self, query: str, user_name: str = None) -> Dict[str, Any]:
+        """
+        Context-aware search - retrieves messages and lets AI reason over them.
+
+        This is for questions that require understanding context, not just keyword matching.
+        Example: "באיזה בית חולים האחות עובדת?" - AI reads her messages and infers the answer.
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+
+        # If no user specified, try to extract from query
+        if not user_name:
+            # Ask AI to extract the user name from the question
+            extract_prompt = f"""Extract the user name from this question. Return ONLY the name, nothing else.
+If no specific user is mentioned, return "NONE".
+
+Question: {query}
+
+User name:"""
+
+            if self.provider == "gemini":
+                user_name = self._call_gemini(extract_prompt).strip()
+            elif self.provider == "groq":
+                user_name = self._call_groq(extract_prompt).strip()
+            else:
+                user_name = self._call_ollama(extract_prompt).strip()
+
+            if user_name.upper() == "NONE" or len(user_name) > 50:
+                user_name = None
+
+        # Get messages for context
+        if user_name:
+            # Get messages from this specific user
+            cursor = conn.execute("""
+                SELECT date, from_name, text_plain as text
+                FROM messages
+                WHERE from_name LIKE ?
+                ORDER BY date DESC
+                LIMIT 200
+            """, (f"%{user_name}%",))
+        else:
+            # Get recent messages for general context
+            cursor = conn.execute("""
+                SELECT date, from_name, text_plain as text
+                FROM messages
+                WHERE text_plain IS NOT NULL AND text_plain != ''
+                ORDER BY date DESC
+                LIMIT 100
+            """)
+
+        messages = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        if not messages:
+            return {
+                "query": query,
+                "answer": "לא נמצאו הודעות רלוונטיות",
+                "context_messages": 0
+            }
+
+        # Build context for AI
+        context_text = "\n".join([
+            f"[{m['date']}] {m['from_name']}: {m['text'][:500]}"
+            for m in messages if m['text']
+        ])
+
+        # Ask AI to reason over the context
+        reason_prompt = f"""You are analyzing a Telegram chat history to answer a question.
+Read the messages carefully and infer the answer from context clues.
+The user may not have stated things directly - look for hints, mentions, and implications.
+
+Question: {query}
+
+Chat messages (most recent first):
+{context_text}
+
+Based on these messages, answer the question in Hebrew.
+If you can infer information (like workplace, location, profession) from context clues, do so.
+If you truly cannot find any relevant information, say so.
+
+Answer:"""
+
+        if self.provider == "gemini":
+            answer = self._call_gemini(reason_prompt)
+        elif self.provider == "groq":
+            answer = self._call_groq(reason_prompt)
+        else:
+            answer = self._call_ollama(reason_prompt)
+
+        return {
+            "query": query,
+            "answer": answer,
+            "context_user": user_name,
+            "context_messages": len(messages),
+            "mode": "context_search"
+        }
+
     def search(self, query: str, generate_answer: bool = True) -> Dict[str, Any]:
         """
         Perform AI-powered search.
