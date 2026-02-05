@@ -115,16 +115,40 @@ def upload_to_hf(full=False):
     print(f"\nSite will rebuild at: https://rottg-telegram-analytics.hf.space")
 
 
+def upload_code_only():
+    """Upload only code files (no DB) - for when you just changed code/templates."""
+    from huggingface_hub import HfApi
+
+    api = HfApi(token=HF_TOKEN)
+
+    print("\n=== Uploading code files to HF ===")
+    upload_patterns = CODE_FILES + [f"{folder}/**" for folder in FOLDERS]
+    print(f"Patterns: {upload_patterns}")
+
+    api.upload_folder(
+        folder_path=PROJECT_DIR,
+        repo_id=REPO_ID,
+        repo_type="space",
+        allow_patterns=upload_patterns,
+    )
+    print("Upload complete!")
+    print(f"\nSite will rebuild at: https://rottg-telegram-analytics.hf.space")
+
+
 def main():
     db_only = "--db-only" in sys.argv
     full = "--full" in sys.argv
+    code_only = "--code-only" in sys.argv
 
-    if not db_only:
+    if not db_only and not code_only:
         run_sync()
     else:
-        print("Skipping sync (--db-only)")
+        print("Skipping sync")
 
-    upload_to_hf(full=full or not db_only and "--db-only" not in sys.argv)
+    if code_only:
+        upload_code_only()
+    else:
+        upload_to_hf(full=full or (not db_only and not code_only))
     print("\n=== Done! ===")
 
 

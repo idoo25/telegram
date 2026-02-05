@@ -10,6 +10,31 @@
  */
 
 // ==========================================
+// MOBILE MENU
+// ==========================================
+
+function toggleMobileMenu() {
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.querySelector('.sidebar-overlay');
+    sidebar.classList.toggle('open');
+    if (overlay) overlay.classList.toggle('active');
+}
+
+// Close mobile menu when clicking a nav link
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.nav-link').forEach(function(link) {
+        link.addEventListener('click', function() {
+            if (window.innerWidth <= 768) {
+                const sidebar = document.querySelector('.sidebar');
+                const overlay = document.querySelector('.sidebar-overlay');
+                sidebar.classList.remove('open');
+                if (overlay) overlay.classList.remove('active');
+            }
+        });
+    });
+});
+
+// ==========================================
 // GLOBAL STATE
 // ==========================================
 
