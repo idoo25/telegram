@@ -49,7 +49,7 @@ class SemanticSearch:
     def reload_embeddings(self):
         """Force reload embeddings from DB (e.g., after daily sync adds new ones)."""
         self.embeddings_loaded = False
-        self.embeddings = []
+        self.embeddings = np.array([]).reshape(0, 0)
         self.message_ids = []
         self.from_names = []
         self.text_previews = []
@@ -60,26 +60,41 @@ class SemanticSearch:
         if self.embeddings_loaded:
             return
 
+        import os
+        if not os.path.exists(self.embeddings_db):
+            print(f"Embeddings DB not found: {self.embeddings_db}")
+            self.embeddings_loaded = True
+            self.embeddings = np.array([]).reshape(0, 0)
+            return
+
         print(f"Loading embeddings from {self.embeddings_db}...")
         conn = sqlite3.connect(self.embeddings_db)
         cursor = conn.execute(
             "SELECT message_id, from_name, text_preview, embedding FROM embeddings"
         )
 
+        emb_list = []
         for row in cursor:
             msg_id, name, text, emb_blob = row
             emb = np.frombuffer(emb_blob, dtype=np.float32)
             self.message_ids.append(msg_id)
             self.from_names.append(name or '')
             self.text_previews.append(text or '')
-            self.embeddings.append(emb)
+            emb_list.append(emb)
 
         conn.close()
 
+        if len(emb_list) == 0:
+            print("No embeddings found in database")
+            self.embeddings = np.array([]).reshape(0, 0)
+            self.embeddings_loaded = True
+            return
+
         # Stack into numpy array for fast computation
-        self.embeddings = np.vstack(self.embeddings)
+        self.embeddings = np.vstack(emb_list)
         # Normalize embeddings for cosine similarity
         norms = np.linalg.norm(self.embeddings, axis=1, keepdims=True)
+        norms = np.where(norms == 0, 1, norms)  # Avoid division by zero
         self.embeddings = self.embeddings / norms
         self.embeddings_loaded = True
         print(f"Loaded {len(self.message_ids)} embeddings")
@@ -98,6 +113,9 @@ class SemanticSearch:
         """
         self._load_model()
         self._load_embeddings()
+
+        if len(self.message_ids) == 0:
+            return []
 
         # Encode query
         query_emb = self.model.encode([query], convert_to_numpy=True)[0]
@@ -336,9 +354,17 @@ Answer:"""
         }
 
     def is_available(self) -> bool:
-        """Check if semantic search is available."""
+        """Check if semantic search is available (DB exists and has embeddings)."""
         import os
-        return HAS_TRANSFORMERS and os.path.exists(self.embeddings_db)
+        if not HAS_TRANSFORMERS or not os.path.exists(self.embeddings_db):
+            return False
+        try:
+            conn = sqlite3.connect(self.embeddings_db)
+            count = conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
+            conn.close()
+            return count > 0
+        except Exception:
+            return False
 
     def stats(self) -> Dict[str, Any]:
         """Get statistics about the embeddings."""

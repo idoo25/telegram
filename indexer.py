@@ -18,6 +18,12 @@ Usage:
 import json
 import sqlite3
 import argparse
+
+try:
+    import ijson
+    HAS_IJSON = True
+except ImportError:
+    HAS_IJSON = False
 import os
 import time
 from pathlib import Path
@@ -97,25 +103,59 @@ def parse_message(msg: dict) -> dict | None:
     }
 
 
-def load_json_messages(json_path: str) -> Generator[dict, None, None]:
-    """Load messages from Telegram export JSON file."""
+def _detect_json_structure(json_path: str) -> str:
+    """Peek at JSON to determine if root is a list or object with 'messages' key."""
     with open(json_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
+        for char in iter(lambda: f.read(1), ''):
+            if char in ' \t\n\r':
+                continue
+            if char == '[':
+                return 'list'
+            return 'object'
+    return 'object'
 
-    messages = data if isinstance(data, list) else data.get('messages', [])
 
-    for msg in messages:
-        parsed = parse_message(msg)
-        if parsed:
-            yield parsed
+def load_json_messages(json_path: str) -> Generator[dict, None, None]:
+    """
+    Load messages from Telegram export JSON file.
+
+    Uses ijson for streaming (constant memory) if available,
+    otherwise falls back to full json.load().
+    """
+    if HAS_IJSON:
+        structure = _detect_json_structure(json_path)
+        prefix = 'item' if structure == 'list' else 'messages.item'
+        with open(json_path, 'rb') as f:
+            for msg in ijson.items(f, prefix):
+                parsed = parse_message(msg)
+                if parsed:
+                    yield parsed
+    else:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        messages = data if isinstance(data, list) else data.get('messages', [])
+        for msg in messages:
+            parsed = parse_message(msg)
+            if parsed:
+                yield parsed
 
 
 def count_messages(json_path: str) -> int:
-    """Count messages in JSON file without loading all into memory."""
-    with open(json_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    messages = data if isinstance(data, list) else data.get('messages', [])
-    return sum(1 for msg in messages if msg.get('type') == 'message')
+    """Count messages in JSON file. Uses streaming if ijson available."""
+    if HAS_IJSON:
+        structure = _detect_json_structure(json_path)
+        prefix = 'item' if structure == 'list' else 'messages.item'
+        count = 0
+        with open(json_path, 'rb') as f:
+            for msg in ijson.items(f, prefix):
+                if msg.get('type') == 'message':
+                    count += 1
+        return count
+    else:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        messages = data if isinstance(data, list) else data.get('messages', [])
+        return sum(1 for msg in messages if msg.get('type') == 'message')
 
 
 def init_database(db_path: str) -> sqlite3.Connection:
@@ -479,36 +519,51 @@ class IncrementalIndexer:
 
         Only messages that don't exist in the database will be added.
         FTS5 index is updated automatically.
+        Uses streaming JSON parser (ijson) when available for constant memory usage.
         """
         start_time = time.time()
 
-        # Load JSON
-        with open(json_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-
-        messages = data if isinstance(data, list) else data.get('messages', [])
-        self.stats['total_in_file'] = len(messages)
-
+        # Count total for progress (streaming-aware)
+        total_hint = 0
         if show_progress:
-            print(f"Processing {len(messages):,} messages from {json_path}")
+            total_hint = count_messages(json_path)
+            print(f"Processing ~{total_hint:,} messages from {json_path}")
+
+        self.stats['total_in_file'] = total_hint
 
         # Start transaction
         self.conn.execute('BEGIN TRANSACTION')
 
         try:
-            for i, msg in enumerate(messages):
-                if msg.get('type') != 'message':
-                    continue
-
-                parsed = parse_message(msg)
-                if parsed:
-                    self._process_message(parsed)
-
-                # Progress update
-                if show_progress and (i + 1) % 10000 == 0:
-                    print(f"  Processed {i+1:,}/{len(messages):,} - "
-                          f"New: {self.stats['new_messages']:,}, "
-                          f"Duplicates: {self.stats['duplicates']:,}")
+            if HAS_IJSON:
+                structure = _detect_json_structure(json_path)
+                prefix = 'item' if structure == 'list' else 'messages.item'
+                with open(json_path, 'rb') as f:
+                    for i, msg in enumerate(ijson.items(f, prefix)):
+                        if msg.get('type') != 'message':
+                            continue
+                        parsed = parse_message(msg)
+                        if parsed:
+                            self._process_message(parsed)
+                        if show_progress and (i + 1) % 10000 == 0:
+                            print(f"  Processed {i+1:,} - "
+                                  f"New: {self.stats['new_messages']:,}, "
+                                  f"Duplicates: {self.stats['duplicates']:,}")
+            else:
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                messages = data if isinstance(data, list) else data.get('messages', [])
+                self.stats['total_in_file'] = len(messages)
+                for i, msg in enumerate(messages):
+                    if msg.get('type') != 'message':
+                        continue
+                    parsed = parse_message(msg)
+                    if parsed:
+                        self._process_message(parsed)
+                    if show_progress and (i + 1) % 10000 == 0:
+                        print(f"  Processed {i+1:,}/{len(messages):,} - "
+                              f"New: {self.stats['new_messages']:,}, "
+                              f"Duplicates: {self.stats['duplicates']:,}")
 
             # Flush remaining
             self._flush_batches()

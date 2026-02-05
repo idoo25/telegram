@@ -89,21 +89,39 @@ def parse_timeframe(timeframe: str) -> tuple[int, int]:
 
 
 # ==========================================
+# CACHE INVALIDATION SYSTEM
+# ==========================================
+
+_cache_version = 0  # Incremented on DB updates to invalidate all caches
+
+
+def invalidate_caches():
+    """Invalidate all cached data. Call after DB updates (sync, import, etc.)."""
+    global _cache_version, _user_rank_tree, _user_rank_tree_timeframe
+    _cache_version += 1
+    _user_rank_tree = None
+    _user_rank_tree_timeframe = None
+
+
+# ==========================================
 # GLOBAL ALGORITHM CACHES
 # ==========================================
 
 # RankTree for O(log n) user ranking - rebuilt on demand
 _user_rank_tree = None
 _user_rank_tree_timeframe = None
+_user_rank_tree_version = -1
 
 def get_user_rank_tree(timeframe: str):
     """
     Get or rebuild the user rank tree for efficient O(log n) rank queries.
-    Tree is cached and rebuilt only when timeframe changes.
+    Tree is cached and rebuilt only when timeframe or DB version changes.
     """
-    global _user_rank_tree, _user_rank_tree_timeframe
+    global _user_rank_tree, _user_rank_tree_timeframe, _user_rank_tree_version
 
-    if _user_rank_tree is not None and _user_rank_tree_timeframe == timeframe:
+    if (_user_rank_tree is not None
+            and _user_rank_tree_timeframe == timeframe
+            and _user_rank_tree_version == _cache_version):
         return _user_rank_tree
 
     start_ts, end_ts = parse_timeframe(timeframe)
@@ -120,14 +138,14 @@ def get_user_rank_tree(timeframe: str):
 
     _user_rank_tree = RankTree()
     for row in cursor.fetchall():
-        # Insert with negative count so higher counts = lower keys = earlier in tree
         _user_rank_tree.insert(
-            -row['message_count'],  # Negative for descending order
+            -row['message_count'],
             {'user_id': row['from_id'], 'name': row['from_name'], 'messages': row['message_count']}
         )
 
     conn.close()
     _user_rank_tree_timeframe = timeframe
+    _user_rank_tree_version = _cache_version
     return _user_rank_tree
 
 
@@ -1670,6 +1688,13 @@ def api_ai_reset():
     _ai_engine = None
     _ai_engine_init_attempted = False
     return jsonify({'status': 'reset', 'message': 'AI engine will be reinitialized on next request'})
+
+
+@app.route('/api/cache/invalidate')
+def api_cache_invalidate():
+    """Invalidate all caches. Call after DB updates (daily sync, import, etc.)."""
+    invalidate_caches()
+    return jsonify({'status': 'invalidated', 'new_version': _cache_version})
 
 
 @app.route('/api/embeddings/reload')
