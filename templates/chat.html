@@ -537,15 +537,13 @@
         function formatDate(dateStr) {
             if (!dateStr) return '';
             const d = new Date(dateStr);
-            const months = ['January','February','March','April','May','June',
-                           'July','August','September','October','November','December'];
-            return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+            return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Jerusalem' });
         }
 
         function formatTime(dateStr) {
             if (!dateStr) return '';
             const d = new Date(dateStr);
-            return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Jerusalem' });
         }
 
         function escapeHtml(text) {

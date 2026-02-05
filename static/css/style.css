@@ -836,6 +836,11 @@ input:focus {
         width: 250px;
     }
 
+    .sidebar.open .logo-text,
+    .sidebar.open .nav-link span:not(.icon) {
+        display: inline;
+    }
+
     .sidebar-overlay {
         display: none;
         position: fixed;
