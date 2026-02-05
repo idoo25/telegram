@@ -420,7 +420,7 @@ class TestDashboardEndpoints(unittest.TestCase):
     def test_overview_has_expected_keys(self):
         resp = self.client.get("/api/overview?timeframe=all")
         data = resp.get_json()
-        for key in ("total_messages", "total_users", "total_links", "total_media"):
+        for key in ("total_messages", "total_users", "links_count", "media_count"):
             self.assertIn(key, data, f"Missing key: {key}")
 
 
