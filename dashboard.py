@@ -24,10 +24,12 @@ from typing import Optional
 from collections import defaultdict
 
 # ==========================================
-# AI CONFIGURATION - Add your API key here
+# AI CONFIGURATION
+# Set via environment variables (e.g. in .env or hosting platform settings)
 # ==========================================
-os.environ['AI_PROVIDER'] = 'gemini'
-os.environ['GEMINI_API_KEY'] = 'YOUR_API_KEY_HERE'  # <-- Replace with your Gemini API key
+if not os.environ.get('AI_PROVIDER'):
+    os.environ['AI_PROVIDER'] = 'gemini'
+# GEMINI_API_KEY should be set as an environment variable, not hardcoded
 
 # Import our algorithms
 from algorithms import (
@@ -2059,9 +2061,9 @@ def api_export_messages():
 def main():
     import argparse
     parser = argparse.ArgumentParser(description='Telegram Analytics Dashboard')
-    parser.add_argument('--db', default='telegram.db', help='Database path')
-    parser.add_argument('--port', type=int, default=5000, help='Server port')
-    parser.add_argument('--host', default='127.0.0.1', help='Server host')
+    parser.add_argument('--db', default=os.environ.get('DB_PATH', 'telegram.db'), help='Database path')
+    parser.add_argument('--port', type=int, default=int(os.environ.get('PORT', 5000)), help='Server port')
+    parser.add_argument('--host', default=os.environ.get('HOST', '127.0.0.1'), help='Server host')
     parser.add_argument('--debug', action='store_true', help='Debug mode')
 
     args = parser.parse_args()
