@@ -1329,6 +1329,26 @@ def api_ai_reset():
     return jsonify({'status': 'reset', 'message': 'AI engine will be reinitialized on next request'})
 
 
+@app.route('/api/embeddings/reload')
+def api_embeddings_reload():
+    """Reload embeddings from DB (call after daily sync adds new embeddings)."""
+    if not HAS_SEMANTIC_SEARCH:
+        return jsonify({'error': 'Semantic search not available'})
+    try:
+        ss = get_semantic_search()
+        old_count = len(ss.message_ids) if ss.embeddings_loaded else 0
+        ss.reload_embeddings()
+        new_count = len(ss.message_ids)
+        return jsonify({
+            'status': 'reloaded',
+            'previous_count': old_count,
+            'new_count': new_count,
+            'added': new_count - old_count
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+
 @app.route('/api/ai/search', methods=['POST'])
 def api_ai_search():
     """AI-powered natural language search."""

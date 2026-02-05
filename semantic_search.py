@@ -46,6 +46,15 @@ class SemanticSearch:
             self.model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
             print("Model loaded!")
 
+    def reload_embeddings(self):
+        """Force reload embeddings from DB (e.g., after daily sync adds new ones)."""
+        self.embeddings_loaded = False
+        self.embeddings = []
+        self.message_ids = []
+        self.from_names = []
+        self.text_previews = []
+        self._load_embeddings()
+
     def _load_embeddings(self):
         """Load all embeddings into memory for fast search."""
         if self.embeddings_loaded:
