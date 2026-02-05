@@ -374,7 +374,7 @@ async function loadTopUsers() {
         const initial = user.name.charAt(0).toUpperCase();
 
         html += `
-            <div class="list-item" onclick="openUserModal('${user.user_id}')" style="cursor: pointer">
+            <div class="list-item" onclick="window.location.href='/user/${user.user_id}'" style="cursor: pointer">
                 <div class="list-rank ${rankClass}">#${user.rank}</div>
                 <div class="user-avatar">${initial}</div>
                 <div class="list-info">
