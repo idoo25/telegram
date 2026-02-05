@@ -157,6 +157,27 @@ CREATE INDEX IF NOT EXISTS idx_message_threads_thread ON message_threads(thread_
 CREATE INDEX IF NOT EXISTS idx_trigrams_trigram ON trigrams(trigram);
 
 -- ============================================
+-- PARTICIPANTS TABLE (from Telethon API)
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS participants (
+    user_id TEXT PRIMARY KEY,
+    first_name TEXT,
+    last_name TEXT,
+    username TEXT,
+    phone TEXT,
+    is_bot INTEGER DEFAULT 0,
+    is_admin INTEGER DEFAULT 0,
+    is_creator INTEGER DEFAULT 0,
+    is_premium INTEGER DEFAULT 0,
+    join_date INTEGER,
+    last_status TEXT DEFAULT 'unknown',
+    last_online INTEGER,
+    about TEXT,
+    updated_at INTEGER
+);
+
+-- ============================================
 -- STATISTICS TABLE FOR FAST AGGREGATIONS
 -- ============================================
 

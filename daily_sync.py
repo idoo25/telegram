@@ -309,6 +309,145 @@ async def fetch_messages(config: dict, hours: int = 36) -> list[dict]:
     return messages_json
 
 
+async def fetch_participants(config: dict) -> list[dict]:
+    """
+    Fetch all group participants with metadata using Telethon.
+    Returns participant info: name, username, status, join date, admin, etc.
+    """
+    from telethon import TelegramClient
+    from telethon.tl.types import (
+        UserStatusOnline, UserStatusOffline, UserStatusRecently,
+        UserStatusLastWeek, UserStatusLastMonth,
+        ChannelParticipantAdmin, ChannelParticipantCreator,
+    )
+
+    api_id = config['api_id']
+    api_hash = config['api_hash']
+    group = config['group']
+
+    client = TelegramClient(str(SESSION_FILE), api_id, api_hash)
+    await client.start()
+
+    # Resolve group
+    if isinstance(group, str) and group.lstrip('-').isdigit():
+        group = int(group)
+    if isinstance(group, int) and group < 0:
+        from telethon.tl.types import PeerChannel
+        channel_id = int(str(group).replace('-100', ''))
+        entity = await client.get_entity(PeerChannel(channel_id))
+    else:
+        entity = await client.get_entity(group)
+
+    log.info(f"Fetching participants from: {getattr(entity, 'title', group)}")
+
+    participants = []
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+
+    async for user in client.iter_participants(entity):
+        # Determine status
+        status = 'unknown'
+        last_online = None
+
+        if isinstance(user.status, UserStatusOnline):
+            status = 'online'
+            last_online = now_ts
+        elif isinstance(user.status, UserStatusOffline):
+            status = 'offline'
+            if user.status.was_online:
+                last_online = int(user.status.was_online.timestamp())
+        elif isinstance(user.status, UserStatusRecently):
+            status = 'recently'
+        elif isinstance(user.status, UserStatusLastWeek):
+            status = 'last_week'
+        elif isinstance(user.status, UserStatusLastMonth):
+            status = 'last_month'
+
+        # Determine role
+        is_admin = False
+        is_creator = False
+        join_date = None
+
+        if hasattr(user, 'participant'):
+            p = user.participant
+            if isinstance(p, ChannelParticipantCreator):
+                is_creator = True
+                is_admin = True
+            elif isinstance(p, ChannelParticipantAdmin):
+                is_admin = True
+            if hasattr(p, 'date') and p.date:
+                join_date = int(p.date.timestamp())
+
+        participants.append({
+            'user_id': f'user{user.id}',
+            'first_name': user.first_name or '',
+            'last_name': user.last_name or '',
+            'username': user.username or '',
+            'phone': user.phone or '',
+            'is_bot': 1 if user.bot else 0,
+            'is_admin': 1 if is_admin else 0,
+            'is_creator': 1 if is_creator else 0,
+            'is_premium': 1 if getattr(user, 'premium', False) else 0,
+            'join_date': join_date,
+            'last_status': status,
+            'last_online': last_online,
+            'about': '',  # Requires separate API call per user
+            'updated_at': now_ts,
+        })
+
+    await client.disconnect()
+
+    log.info(f"Fetched {len(participants)} participants")
+    return participants
+
+
+def sync_participants(participants: list[dict]) -> dict:
+    """Save participants to telegram.db."""
+    if not participants:
+        return {'synced': 0}
+
+    conn = sqlite3.connect(str(DB_PATH))
+
+    # Create table if not exists
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS participants (
+            user_id TEXT PRIMARY KEY,
+            first_name TEXT,
+            last_name TEXT,
+            username TEXT,
+            phone TEXT,
+            is_bot INTEGER DEFAULT 0,
+            is_admin INTEGER DEFAULT 0,
+            is_creator INTEGER DEFAULT 0,
+            is_premium INTEGER DEFAULT 0,
+            join_date INTEGER,
+            last_status TEXT DEFAULT 'unknown',
+            last_online INTEGER,
+            about TEXT,
+            updated_at INTEGER
+        )
+    """)
+
+    # Upsert participants
+    conn.executemany("""
+        INSERT OR REPLACE INTO participants
+        (user_id, first_name, last_name, username, phone, is_bot, is_admin,
+         is_creator, is_premium, join_date, last_status, last_online, about, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, [
+        (p['user_id'], p['first_name'], p['last_name'], p['username'],
+         p['phone'], p['is_bot'], p['is_admin'], p['is_creator'],
+         p['is_premium'], p['join_date'], p['last_status'],
+         p['last_online'], p['about'], p['updated_at'])
+        for p in participants
+    ])
+
+    conn.commit()
+    conn.close()
+
+    log.info(f"Synced {len(participants)} participants to DB")
+    return {'synced': len(participants)}
+
+
 # ==========================================
 # DATABASE: INDEX NEW MESSAGES
 # ==========================================
@@ -436,26 +575,36 @@ def run_sync(hours: int = 36, skip_embeddings: bool = False):
         sys.exit(1)
 
     # Step 1: Fetch messages from Telegram
-    log.info("[1/3] Fetching messages from Telegram...")
+    log.info("[1/4] Fetching messages from Telegram...")
     messages_json = asyncio.run(fetch_messages(config, hours=hours))
 
     if not messages_json:
-        log.info("No messages found in the time window. Done.")
-        return
+        log.info("No messages found in the time window.")
 
     # Step 2: Index into telegram.db
-    log.info("[2/3] Indexing new messages...")
-    index_stats = index_messages(messages_json)
+    index_stats = {'new_messages': 0, 'duplicates': 0}
+    if messages_json:
+        log.info("[2/4] Indexing new messages...")
+        index_stats = index_messages(messages_json)
 
-    # Step 3: Generate embeddings
-    if skip_embeddings:
-        log.info("[3/3] Skipping embeddings (--skip-embeddings)")
+    # Step 3: Sync participants
+    log.info("[3/4] Syncing participants...")
+    try:
+        participants = asyncio.run(fetch_participants(config))
+        part_stats = sync_participants(participants)
+    except Exception as e:
+        log.warning(f"Failed to sync participants: {e}")
+        part_stats = {'synced': 0}
+
+    # Step 4: Generate embeddings
+    if skip_embeddings or not messages_json:
+        log.info("[4/4] Skipping embeddings")
         emb_stats = {'new_embeddings': 0}
     else:
-        log.info("[3/3] Generating embeddings for new messages...")
+        log.info("[4/4] Generating embeddings for new messages...")
         emb_stats = generate_embeddings(messages_json)
 
-    # Step 4: Notify running server to reload embeddings
+    # Notify running server to reload embeddings
     if emb_stats.get('new_embeddings', 0) > 0:
         try:
             import urllib.request
@@ -468,9 +617,10 @@ def run_sync(hours: int = 36, skip_embeddings: bool = False):
     elapsed = time.time() - start_time
     log.info("=" * 50)
     log.info("Sync complete!")
-    log.info(f"  Messages fetched:    {len(messages_json)}")
+    log.info(f"  Messages fetched:    {len(messages_json) if messages_json else 0}")
     log.info(f"  New to DB:           {index_stats.get('new_messages', 0)}")
     log.info(f"  Duplicates skipped:  {index_stats.get('duplicates', 0)}")
+    log.info(f"  Participants synced: {part_stats.get('synced', 0)}")
     log.info(f"  New embeddings:      {emb_stats.get('new_embeddings', 0)}")
     log.info(f"  Time:                {elapsed:.1f}s")
     log.info("=" * 50)

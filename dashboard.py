@@ -165,6 +165,12 @@ def chat_page():
     return render_template('chat.html')
 
 
+@app.route('/user/<user_id>')
+def user_profile_page(user_id):
+    """User profile page with comprehensive statistics."""
+    return render_template('user_profile.html', user_id=user_id)
+
+
 @app.route('/settings')
 def settings_page():
     """Settings and data update page."""
@@ -435,12 +441,12 @@ def api_chart_hourly():
 
 @app.route('/api/users')
 def api_users():
-    """Get user leaderboard."""
+    """Get user leaderboard including participants who never sent messages."""
     timeframe = request.args.get('timeframe', 'all')
     start_ts, end_ts = parse_timeframe(timeframe)
     limit = int(request.args.get('limit', 50))
     offset = int(request.args.get('offset', 0))
-    sort_by = request.args.get('sort', 'messages')
+    include_inactive = request.args.get('include_inactive', '1') == '1'
 
     conn = get_db()
 
@@ -451,7 +457,7 @@ def api_users():
     ''', (start_ts, end_ts))
     total_messages = cursor.fetchone()[0]
 
-    # Get user stats
+    # Get user stats from messages
     cursor = conn.execute('''
         SELECT
             from_id,
@@ -468,13 +474,13 @@ def api_users():
         AND from_id IS NOT NULL AND from_id != ''
         GROUP BY from_id
         ORDER BY message_count DESC
-        LIMIT ? OFFSET ?
-    ''', (start_ts, end_ts, limit, offset))
+    ''', (start_ts, end_ts))
 
-    users = []
-    for i, row in enumerate(cursor.fetchall()):
-        users.append({
-            'rank': offset + i + 1,
+    active_users = []
+    active_user_ids = set()
+    for row in cursor.fetchall():
+        active_user_ids.add(row['from_id'])
+        active_users.append({
             'user_id': row['from_id'],
             'name': row['from_name'] or 'Unknown',
             'messages': row['message_count'],
@@ -485,21 +491,87 @@ def api_users():
             'first_seen': row['first_seen'],
             'last_seen': row['last_seen'],
             'active_days': row['active_days'],
-            'daily_average': round(row['message_count'] / max(1, row['active_days']), 1)
+            'daily_average': round(row['message_count'] / max(1, row['active_days']), 1),
+            'is_participant': False,
+            'role': None,
         })
 
-    # Get total count
-    cursor = conn.execute('''
-        SELECT COUNT(DISTINCT from_id) FROM messages
-        WHERE date_unixtime BETWEEN ? AND ?
-    ''', (start_ts, end_ts))
-    total_users = cursor.fetchone()[0]
+    # Try to enrich with participant data and add inactive participants
+    has_participants = False
+    try:
+        cursor = conn.execute('SELECT COUNT(*) FROM participants')
+        has_participants = cursor.fetchone()[0] > 0
+    except Exception:
+        pass
+
+    if has_participants:
+        # Enrich active users with participant data
+        participant_map = {}
+        cursor = conn.execute('SELECT * FROM participants')
+        for row in cursor.fetchall():
+            participant_map[row['user_id']] = dict(row)
+
+        for user in active_users:
+            p = participant_map.get(user['user_id'])
+            if p:
+                user['is_participant'] = True
+                user['username'] = p.get('username', '')
+                if p.get('is_creator'):
+                    user['role'] = 'creator'
+                elif p.get('is_admin'):
+                    user['role'] = 'admin'
+                elif p.get('is_bot'):
+                    user['role'] = 'bot'
+
+        # Add inactive participants (those who never sent messages)
+        if include_inactive:
+            for uid, p in participant_map.items():
+                if uid not in active_user_ids:
+                    name = f"{p.get('first_name', '')} {p.get('last_name', '')}".strip()
+                    role = None
+                    if p.get('is_creator'):
+                        role = 'creator'
+                    elif p.get('is_admin'):
+                        role = 'admin'
+                    elif p.get('is_bot'):
+                        role = 'bot'
+
+                    active_users.append({
+                        'user_id': uid,
+                        'name': name or 'Unknown',
+                        'messages': 0,
+                        'characters': 0,
+                        'percentage': 0,
+                        'links': 0,
+                        'media': 0,
+                        'first_seen': None,
+                        'last_seen': None,
+                        'active_days': 0,
+                        'daily_average': 0,
+                        'is_participant': True,
+                        'username': p.get('username', ''),
+                        'role': role,
+                    })
+
+    # Assign ranks (active users first, then inactive)
+    users_with_rank = []
+    for i, user in enumerate(active_users):
+        user['rank'] = i + 1 if user['messages'] > 0 else None
+        users_with_rank.append(user)
+
+    total_users = len(users_with_rank)
+    total_active = len(active_user_ids)
+
+    # Apply pagination
+    page_users = users_with_rank[offset:offset + limit]
 
     conn.close()
 
     return jsonify({
-        'users': users,
+        'users': page_users,
         'total': total_users,
+        'total_active': total_active,
+        'total_participants': total_users - total_active if has_participants else 0,
         'limit': limit,
         'offset': offset
     })
@@ -607,6 +679,251 @@ def api_user_detail(user_id):
         'rank': rank,
         'hourly_activity': [hourly.get(h, 0) for h in range(24)],
         'daily_activity': daily
+    })
+
+
+@app.route('/api/user/<user_id>/profile')
+def api_user_profile(user_id):
+    """Get comprehensive user profile with all available statistics."""
+    conn = get_db()
+
+    # ---- Participant info (from Telethon sync) ----
+    participant = None
+    try:
+        cursor = conn.execute('SELECT * FROM participants WHERE user_id = ?', (user_id,))
+        row = cursor.fetchone()
+        if row:
+            participant = dict(row)
+    except Exception:
+        pass  # Table might not exist yet
+
+    # ---- Basic message stats ----
+    cursor = conn.execute('''
+        SELECT
+            from_name,
+            COUNT(*) as total_messages,
+            SUM(text_length) as total_chars,
+            AVG(text_length) as avg_length,
+            MAX(text_length) as max_length,
+            SUM(has_links) as links_shared,
+            SUM(has_media) as media_sent,
+            SUM(has_photo) as photos_sent,
+            SUM(has_mentions) as mentions_made,
+            SUM(is_edited) as edits,
+            MIN(date_unixtime) as first_message,
+            MAX(date_unixtime) as last_message,
+            COUNT(DISTINCT date(datetime(date_unixtime, 'unixepoch'))) as active_days
+        FROM messages WHERE from_id = ?
+    ''', (user_id,))
+    stats = cursor.fetchone()
+
+    if not stats or not stats['total_messages']:
+        # User might be a participant who never sent a message
+        if participant:
+            conn.close()
+            return jsonify({
+                'user_id': user_id,
+                'participant': participant,
+                'has_messages': False,
+                'name': f"{participant.get('first_name', '')} {participant.get('last_name', '')}".strip()
+            })
+        conn.close()
+        return jsonify({'error': 'User not found'}), 404
+
+    stats = dict(stats)
+
+    # ---- Replies sent (who does this user reply to most) ----
+    cursor = conn.execute('''
+        SELECT r.from_name, r.from_id, COUNT(*) as cnt
+        FROM messages m
+        JOIN messages r ON m.reply_to_message_id = r.id
+        WHERE m.from_id = ? AND r.from_id != ?
+        GROUP BY r.from_id
+        ORDER BY cnt DESC
+        LIMIT 10
+    ''', (user_id, user_id))
+    replies_to = [{'name': r[0], 'user_id': r[1], 'count': r[2]} for r in cursor.fetchall()]
+
+    # ---- Replies received (who replies to this user most) ----
+    cursor = conn.execute('''
+        SELECT m.from_name, m.from_id, COUNT(*) as cnt
+        FROM messages m
+        JOIN messages r ON m.reply_to_message_id = r.id
+        WHERE r.from_id = ? AND m.from_id != ?
+        GROUP BY m.from_id
+        ORDER BY cnt DESC
+        LIMIT 10
+    ''', (user_id, user_id))
+    replies_from = [{'name': r[0], 'user_id': r[1], 'count': r[2]} for r in cursor.fetchall()]
+
+    # ---- Total replies sent/received ----
+    cursor = conn.execute('''
+        SELECT COUNT(*) FROM messages
+        WHERE from_id = ? AND reply_to_message_id IS NOT NULL
+    ''', (user_id,))
+    total_replies_sent = cursor.fetchone()[0]
+
+    cursor = conn.execute('''
+        SELECT COUNT(*) FROM messages m
+        JOIN messages r ON m.reply_to_message_id = r.id
+        WHERE r.from_id = ? AND m.from_id != ?
+    ''', (user_id, user_id))
+    total_replies_received = cursor.fetchone()[0]
+
+    # ---- Forwarded messages ----
+    cursor = conn.execute('''
+        SELECT COUNT(*) FROM messages
+        WHERE from_id = ? AND forwarded_from IS NOT NULL
+    ''', (user_id,))
+    forwards_sent = cursor.fetchone()[0]
+
+    # ---- Top forwarded sources ----
+    cursor = conn.execute('''
+        SELECT forwarded_from, COUNT(*) as cnt
+        FROM messages
+        WHERE from_id = ? AND forwarded_from IS NOT NULL
+        GROUP BY forwarded_from
+        ORDER BY cnt DESC
+        LIMIT 5
+    ''', (user_id,))
+    top_forward_sources = [{'name': r[0], 'count': r[1]} for r in cursor.fetchall()]
+
+    # ---- Activity by hour ----
+    cursor = conn.execute('''
+        SELECT
+            CAST(strftime('%H', datetime(date_unixtime, 'unixepoch')) AS INTEGER) as hour,
+            COUNT(*) as count
+        FROM messages WHERE from_id = ?
+        GROUP BY hour
+    ''', (user_id,))
+    hourly = {r[0]: r[1] for r in cursor.fetchall()}
+
+    # ---- Activity by weekday ----
+    cursor = conn.execute('''
+        SELECT
+            CAST(strftime('%w', datetime(date_unixtime, 'unixepoch')) AS INTEGER) as weekday,
+            COUNT(*) as count
+        FROM messages WHERE from_id = ?
+        GROUP BY weekday
+    ''', (user_id,))
+    weekday_names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+    weekday_data = {r[0]: r[1] for r in cursor.fetchall()}
+    weekday_activity = [{'day': weekday_names[d], 'count': weekday_data.get(d, 0)} for d in range(7)]
+
+    # ---- Activity trend (last 90 days) ----
+    cursor = conn.execute('''
+        SELECT
+            date(datetime(date_unixtime, 'unixepoch')) as day,
+            COUNT(*) as count
+        FROM messages WHERE from_id = ?
+        GROUP BY day
+        ORDER BY day DESC
+        LIMIT 90
+    ''', (user_id,))
+    daily_activity = [{'date': r[0], 'count': r[1]} for r in cursor.fetchall()]
+
+    # ---- Monthly trend ----
+    cursor = conn.execute('''
+        SELECT
+            strftime('%Y-%m', datetime(date_unixtime, 'unixepoch')) as month,
+            COUNT(*) as count
+        FROM messages WHERE from_id = ?
+        GROUP BY month
+        ORDER BY month
+    ''', (user_id,))
+    monthly_activity = [{'month': r[0], 'count': r[1]} for r in cursor.fetchall()]
+
+    # ---- Top links shared ----
+    cursor = conn.execute('''
+        SELECT e.value, COUNT(*) as cnt
+        FROM entities e
+        JOIN messages m ON e.message_id = m.id
+        WHERE m.from_id = ? AND e.type = 'link'
+        GROUP BY e.value
+        ORDER BY cnt DESC
+        LIMIT 10
+    ''', (user_id,))
+    top_links = [{'url': r[0], 'count': r[1]} for r in cursor.fetchall()]
+
+    # ---- Rank among all users ----
+    cursor = conn.execute('''
+        SELECT COUNT(*) + 1 FROM (
+            SELECT from_id, COUNT(*) as cnt FROM messages GROUP BY from_id
+        ) WHERE cnt > ?
+    ''', (stats['total_messages'],))
+    rank = cursor.fetchone()[0]
+
+    cursor = conn.execute('SELECT COUNT(DISTINCT from_id) FROM messages')
+    total_users = cursor.fetchone()[0]
+
+    # ---- Average reply time (when replying to someone) ----
+    cursor = conn.execute('''
+        SELECT AVG(m.date_unixtime - r.date_unixtime)
+        FROM messages m
+        JOIN messages r ON m.reply_to_message_id = r.id
+        WHERE m.from_id = ?
+        AND m.date_unixtime - r.date_unixtime > 0
+        AND m.date_unixtime - r.date_unixtime < 86400
+    ''', (user_id,))
+    avg_reply_time = cursor.fetchone()[0]
+
+    conn.close()
+
+    # ---- Build response ----
+    total_msgs = stats['total_messages']
+    active_days = stats['active_days'] or 1
+    first_msg = stats['first_message']
+    last_msg = stats['last_message']
+    span_days = max(1, (last_msg - first_msg) / 86400) if first_msg and last_msg else 1
+
+    return jsonify({
+        'user_id': user_id,
+        'name': stats['from_name'] or 'Unknown',
+        'has_messages': True,
+        'participant': participant,
+
+        # Core stats
+        'total_messages': total_msgs,
+        'total_characters': stats['total_chars'] or 0,
+        'avg_message_length': round(stats['avg_length'] or 0, 1),
+        'max_message_length': stats['max_length'] or 0,
+        'links_shared': stats['links_shared'] or 0,
+        'media_sent': stats['media_sent'] or 0,
+        'photos_sent': stats['photos_sent'] or 0,
+        'mentions_made': stats['mentions_made'] or 0,
+        'edits': stats['edits'] or 0,
+        'forwards_sent': forwards_sent,
+
+        # Time stats
+        'first_message': first_msg,
+        'last_message': last_msg,
+        'active_days': active_days,
+        'daily_average': round(total_msgs / active_days, 1),
+        'messages_per_calendar_day': round(total_msgs / span_days, 1),
+
+        # Reply stats
+        'total_replies_sent': total_replies_sent,
+        'total_replies_received': total_replies_received,
+        'reply_ratio': round(total_replies_sent / max(1, total_msgs) * 100, 1),
+        'avg_reply_time_seconds': round(avg_reply_time) if avg_reply_time else None,
+        'replies_to': replies_to,
+        'replies_from': replies_from,
+
+        # Forward stats
+        'top_forward_sources': top_forward_sources,
+
+        # Ranking
+        'rank': rank,
+        'total_active_users': total_users,
+
+        # Activity patterns
+        'hourly_activity': [hourly.get(h, 0) for h in range(24)],
+        'weekday_activity': weekday_activity,
+        'daily_activity': daily_activity,
+        'monthly_activity': monthly_activity,
+
+        # Content
+        'top_links': top_links,
     })
 
 

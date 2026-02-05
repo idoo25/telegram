@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Profile - Telegram Analytics</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* Profile-specific styles */
+        .profile-header {
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+            margin-bottom: 2rem;
+            padding: 2rem;
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-color);
+        }
+
+        .profile-avatar {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        .profile-info { flex: 1; }
+
+        .profile-name {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+
+        .profile-meta {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin-top: 0.5rem;
+        }
+
+        .profile-meta span {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge-creator { background: #ffd700; color: #1a1a2e; }
+        .badge-admin { background: #28a745; color: white; }
+        .badge-bot { background: #6c757d; color: white; }
+        .badge-premium { background: #9b59b6; color: white; }
+        .badge-online { background: #28a745; color: white; }
+        .badge-recently { background: #17a2b8; color: white; }
+        .badge-offline { background: var(--border-color); color: var(--text-muted); }
+
+        .profile-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .profile-stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .profile-stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .profile-stat-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+        }
+
+        .profile-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .profile-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 1.5rem;
+        }
+
+        .profile-card h3 {
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .profile-card.full-width {
+            grid-column: span 2;
+        }
+
+        .reply-network-list {
+            list-style: none;
+        }
+
+        .reply-network-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .reply-network-item:last-child {
+            border-bottom: none;
+        }
+
+        .reply-network-name {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .reply-network-name a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        .reply-network-name a:hover {
+            text-decoration: underline;
+        }
+
+        .reply-network-count {
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .reply-bar {
+            height: 4px;
+            background: var(--border-color);
+            border-radius: 2px;
+            margin-top: 4px;
+        }
+
+        .reply-bar-fill {
+            height: 100%;
+            background: var(--primary);
+            border-radius: 2px;
+        }
+
+        .links-list {
+            list-style: none;
+        }
+
+        .links-list li {
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .links-list li:last-child { border-bottom: none; }
+
+        .links-list a {
+            color: var(--primary);
+            text-decoration: none;
+            word-break: break-all;
+            font-size: 0.875rem;
+        }
+
+        .links-list a:hover { text-decoration: underline; }
+
+        .links-list .count {
+            font-weight: 600;
+            color: var(--text-muted);
+            flex-shrink: 0;
+            margin-left: 1rem;
+        }
+
+        .no-messages {
+            text-align: center;
+            padding: 3rem;
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-color);
+        }
+
+        .no-messages h2 {
+            margin-bottom: 0.5rem;
+            color: var(--text-muted);
+        }
+
+        .forward-source {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .forward-source:last-child { border-bottom: none; }
+
+        .time-info {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            padding: 0.5rem 0;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        @media (max-width: 992px) {
+            .profile-grid {
+                grid-template-columns: 1fr;
+            }
+            .profile-card.full-width {
+                grid-column: span 1;
+            }
+            .profile-header {
+                flex-direction: column;
+                text-align: center;
+            }
+            .profile-meta {
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <nav class="sidebar">
+        <div class="logo">
+            <span class="logo-icon">📊</span>
+            <span class="logo-text">TG Analytics</span>
+        </div>
+        <ul class="nav-menu">
+            <li class="nav-item">
+                <a href="/" class="nav-link">
+                    <span class="icon">📈</span>
+                    <span>Overview</span>
+                </a>
+            </li>
+            <li class="nav-item active">
+                <a href="/users" class="nav-link">
+                    <span class="icon">👥</span>
+                    <span>Users</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/chat" class="nav-link">
+                    <span class="icon">💬</span>
+                    <span>Chat</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/search" class="nav-link">
+                    <span class="icon">🔍</span>
+                    <span>Search</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/moderation" class="nav-link">
+                    <span class="icon">🛡️</span>
+                    <span>Moderation</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/settings" class="nav-link">
+                    <span class="icon">⚙️</span>
+                    <span>Settings</span>
+                </a>
+            </li>
+        </ul>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <header class="header">
+            <h1><a href="/users" style="color: var(--text-muted); text-decoration: none;">&larr; Users</a></h1>
+        </header>
+
+        <div id="profile-content">
+            <div class="loading"><div class="spinner"></div></div>
+        </div>
+    </main>
+
+    <script>
+        const USER_ID = '{{ user_id }}';
+        const COLORS = ['#e17076','#7bc862','#e5ca77','#65aadd','#a695e7','#ee7aae','#6ec9cb','#faa774'];
+
+        function getAvatarColor(name) {
+            let hash = 0;
+            for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+            return COLORS[Math.abs(hash) % COLORS.length];
+        }
+
+        function formatNumber(num) {
+            if (num === null || num === undefined) return '-';
+            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+            return num.toLocaleString();
+        }
+
+        function formatDate(ts) {
+            if (!ts) return '-';
+            const d = new Date(ts * 1000);
+            return d.toLocaleDateString('he-IL', { year: 'numeric', month: 'short', day: 'numeric' });
+        }
+
+        function formatDuration(seconds) {
+            if (!seconds) return '-';
+            if (seconds < 60) return Math.round(seconds) + 's';
+            if (seconds < 3600) return Math.round(seconds / 60) + 'm';
+            return (seconds / 3600).toFixed(1) + 'h';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        document.addEventListener('DOMContentLoaded', loadProfile);
+
+        async function loadProfile() {
+            const container = document.getElementById('profile-content');
+            try {
+                const resp = await fetch(`/api/user/${USER_ID}/profile`);
+                const data = await resp.json();
+
+                if (data.error) {
+                    container.innerHTML = `<div class="empty-state"><h2>User not found</h2><p>${data.error}</p></div>`;
+                    return;
+                }
+
+                if (!data.has_messages && data.participant) {
+                    renderInactiveProfile(container, data);
+                    return;
+                }
+
+                renderFullProfile(container, data);
+            } catch (err) {
+                container.innerHTML = `<div class="empty-state">Error loading profile: ${err.message}</div>`;
+            }
+        }
+
+        function renderInactiveProfile(container, data) {
+            const p = data.participant;
+            const name = data.name || 'Unknown';
+            const color = getAvatarColor(name);
+            const initial = name.charAt(0).toUpperCase();
+
+            let badges = '';
+            if (p.is_creator) badges += ' <span class="badge badge-creator">Creator</span>';
+            if (p.is_admin && !p.is_creator) badges += ' <span class="badge badge-admin">Admin</span>';
+            if (p.is_bot) badges += ' <span class="badge badge-bot">Bot</span>';
+            if (p.is_premium) badges += ' <span class="badge badge-premium">Premium</span>';
+
+            container.innerHTML = `
+                <div class="profile-header">
+                    <div class="profile-avatar" style="background: ${color}">${initial}</div>
+                    <div class="profile-info">
+                        <div class="profile-name">${escapeHtml(name)}${badges}</div>
+                        ${p.username ? `<div style="color: var(--primary);">@${escapeHtml(p.username)}</div>` : ''}
+                        <div class="profile-meta">
+                            ${p.join_date ? `<span>Joined: ${formatDate(p.join_date)}</span>` : ''}
+                            <span>Status: <span class="badge badge-${p.last_status === 'online' ? 'online' : p.last_status === 'recently' ? 'recently' : 'offline'}">${p.last_status}</span></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="no-messages">
+                    <h2>No Messages</h2>
+                    <p style="color: var(--text-muted);">This participant hasn't sent any messages in the group.</p>
+                </div>
+            `;
+        }
+
+        function renderFullProfile(container, data) {
+            const name = data.name || 'Unknown';
+            const color = getAvatarColor(name);
+            const initial = name.charAt(0).toUpperCase();
+            const p = data.participant;
+
+            // Badges
+            let badges = '';
+            if (p) {
+                if (p.is_creator) badges += ' <span class="badge badge-creator">Creator</span>';
+                if (p.is_admin && !p.is_creator) badges += ' <span class="badge badge-admin">Admin</span>';
+                if (p.is_bot) badges += ' <span class="badge badge-bot">Bot</span>';
+                if (p.is_premium) badges += ' <span class="badge badge-premium">Premium</span>';
+            }
+
+            // Header
+            let html = `
+                <div class="profile-header">
+                    <div class="profile-avatar" style="background: ${color}">${initial}</div>
+                    <div class="profile-info">
+                        <div class="profile-name">${escapeHtml(name)}${badges}</div>
+                        ${p && p.username ? `<div style="color: var(--primary);">@${escapeHtml(p.username)}</div>` : ''}
+                        <div class="profile-meta">
+                            <span>#${data.rank} of ${data.total_active_users}</span>
+                            <span>ID: ${data.user_id}</span>
+                            ${p && p.join_date ? `<span>Joined: ${formatDate(p.join_date)}</span>` : ''}
+                            ${p ? `<span>Status: <span class="badge badge-${p.last_status === 'online' ? 'online' : p.last_status === 'recently' ? 'recently' : 'offline'}">${p.last_status}</span></span>` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Stats grid
+            html += `
+                <div class="profile-stats">
+                    <div class="profile-stat-card">
+                        <div class="profile-stat-value">${formatNumber(data.total_messages)}</div>
+                        <div class="profile-stat-label">Messages</div>
+                    </div>
+                    <div class="profile-stat-card">
+                        <div class="profile-stat-value">${formatNumber(data.total_characters)}</div>
+                        <div class="profile-stat-label">Characters</div>
+                    </div>
+                    <div class="profile-stat-card">
+                        <div class="profile-stat-value">${data.avg_message_length}</div>
+                        <div class="profile-stat-label">Avg Length</div>
+                    </div>
+                    <div class="profile-stat-card">
+                        <div class="profile-stat-value">${data.active_days}</div>
+                        <div class="profile-stat-label">Active Days</div>
+                    </div>
+                    <div class="profile-stat-card">
+                        <div class="profile-stat-value">${data.daily_average}</div>
+                        <div class="profile-stat-label">Daily Avg</div>
+                    </div>
+                    <div class="profile-stat-card">
+                        <div class="profile-stat-value">${formatNumber(data.total_replies_sent)}</div>
+                        <div class="profile-stat-label">Replies Sent</div>
+                    </div>
+                    <div class="profile-stat-card">
+                        <div class="profile-stat-value">${formatNumber(data.total_replies_received)}</div>
+                        <div class="profile-stat-label">Replies Received</div>
+                    </div>
+                    <div class="profile-stat-card">
+                        <div class="profile-stat-value">${data.reply_ratio}%</div>
+                        <div class="profile-stat-label">Reply Rate</div>
+                    </div>
+                    <div class="profile-stat-card">
+                        <div class="profile-stat-value">${formatDuration(data.avg_reply_time_seconds)}</div>
+                        <div class="profile-stat-label">Avg Reply Time</div>
+                    </div>
+                    <div class="profile-stat-card">
+                        <div class="profile-stat-value">${formatNumber(data.links_shared)}</div>
+                        <div class="profile-stat-label">Links</div>
+                    </div>
+                    <div class="profile-stat-card">
+                        <div class="profile-stat-value">${formatNumber(data.media_sent)}</div>
+                        <div class="profile-stat-label">Media</div>
+                    </div>
+                    <div class="profile-stat-card">
+                        <div class="profile-stat-value">${formatNumber(data.forwards_sent)}</div>
+                        <div class="profile-stat-label">Forwards</div>
+                    </div>
+                </div>
+            `;
+
+            // Time info
+            html += `
+                <div class="profile-card full-width" style="margin-bottom: 1.5rem;">
+                    <h3>Timeline</h3>
+                    <div class="time-info">
+                        <span>First message: ${formatDate(data.first_message)}</span>
+                        <span>Last message: ${formatDate(data.last_message)}</span>
+                    </div>
+                    <div class="time-info">
+                        <span>Edits: ${formatNumber(data.edits)}</span>
+                        <span>Mentions: ${formatNumber(data.mentions_made)}</span>
+                    </div>
+                </div>
+            `;
+
+            // Charts + Reply network
+            html += `<div class="profile-grid">`;
+
+            // Hourly chart
+            html += `
+                <div class="profile-card">
+                    <h3>Activity by Hour</h3>
+                    <div style="height: 200px;"><canvas id="hourly-chart"></canvas></div>
+                </div>
+            `;
+
+            // Weekday chart
+            html += `
+                <div class="profile-card">
+                    <h3>Activity by Day of Week</h3>
+                    <div style="height: 200px;"><canvas id="weekday-chart"></canvas></div>
+                </div>
+            `;
+
+            // Monthly trend
+            html += `
+                <div class="profile-card full-width">
+                    <h3>Monthly Trend</h3>
+                    <div style="height: 200px;"><canvas id="monthly-chart"></canvas></div>
+                </div>
+            `;
+
+            // Daily activity (last 90 days)
+            html += `
+                <div class="profile-card full-width">
+                    <h3>Daily Activity (Last 90 Days)</h3>
+                    <div style="height: 200px;"><canvas id="daily-chart"></canvas></div>
+                </div>
+            `;
+
+            // Replies to (top 10)
+            const maxReplyTo = data.replies_to.length > 0 ? data.replies_to[0].count : 1;
+            html += `
+                <div class="profile-card">
+                    <h3>Most Replies To</h3>
+                    ${data.replies_to.length === 0 ? '<p style="color: var(--text-muted);">No reply data</p>' : ''}
+                    <ul class="reply-network-list">
+                        ${data.replies_to.map(r => `
+                            <li class="reply-network-item">
+                                <div class="reply-network-name">
+                                    <a href="/user/${r.user_id}">${escapeHtml(r.name)}</a>
+                                </div>
+                                <span class="reply-network-count">${r.count}</span>
+                            </li>
+                            <div class="reply-bar"><div class="reply-bar-fill" style="width: ${(r.count / maxReplyTo * 100).toFixed(1)}%"></div></div>
+                        `).join('')}
+                    </ul>
+                </div>
+            `;
+
+            // Replies from (top 10)
+            const maxReplyFrom = data.replies_from.length > 0 ? data.replies_from[0].count : 1;
+            html += `
+                <div class="profile-card">
+                    <h3>Most Replies From</h3>
+                    ${data.replies_from.length === 0 ? '<p style="color: var(--text-muted);">No reply data</p>' : ''}
+                    <ul class="reply-network-list">
+                        ${data.replies_from.map(r => `
+                            <li class="reply-network-item">
+                                <div class="reply-network-name">
+                                    <a href="/user/${r.user_id}">${escapeHtml(r.name)}</a>
+                                </div>
+                                <span class="reply-network-count">${r.count}</span>
+                            </li>
+                            <div class="reply-bar"><div class="reply-bar-fill" style="width: ${(r.count / maxReplyFrom * 100).toFixed(1)}%; background: #28a745;"></div></div>
+                        `).join('')}
+                    </ul>
+                </div>
+            `;
+
+            // Top forward sources
+            if (data.top_forward_sources && data.top_forward_sources.length > 0) {
+                html += `
+                    <div class="profile-card">
+                        <h3>Top Forward Sources</h3>
+                        ${data.top_forward_sources.map(f => `
+                            <div class="forward-source">
+                                <span>${escapeHtml(f.name)}</span>
+                                <span class="reply-network-count">${f.count}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            // Top links
+            if (data.top_links && data.top_links.length > 0) {
+                html += `
+                    <div class="profile-card">
+                        <h3>Top Links Shared</h3>
+                        <ul class="links-list">
+                            ${data.top_links.map(l => `
+                                <li>
+                                    <a href="${escapeHtml(l.url)}" target="_blank" rel="noopener">${escapeHtml(l.url.length > 50 ? l.url.substring(0, 50) + '...' : l.url)}</a>
+                                    <span class="count">${l.count}x</span>
+                                </li>
+                            `).join('')}
+                        </ul>
+                    </div>
+                `;
+            }
+
+            html += `</div>`; // close profile-grid
+
+            container.innerHTML = html;
+
+            // Render charts
+            renderHourlyChart(data.hourly_activity);
+            renderWeekdayChart(data.weekday_activity);
+            renderMonthlyChart(data.monthly_activity);
+            renderDailyChart(data.daily_activity);
+        }
+
+        function chartDefaults() {
+            return {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        ticks: { color: '#718096' }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: '#718096', maxRotation: 0, autoSkip: true, maxTicksLimit: 12 }
+                    }
+                }
+            };
+        }
+
+        function renderHourlyChart(hourly) {
+            const ctx = document.getElementById('hourly-chart');
+            if (!ctx) return;
+            new Chart(ctx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: Array.from({length: 24}, (_, i) => `${i}:00`),
+                    datasets: [{
+                        data: hourly,
+                        backgroundColor: 'rgba(0, 136, 204, 0.6)',
+                        borderColor: 'rgba(0, 136, 204, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: chartDefaults()
+            });
+        }
+
+        function renderWeekdayChart(weekday) {
+            const ctx = document.getElementById('weekday-chart');
+            if (!ctx) return;
+            new Chart(ctx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: weekday.map(w => w.day.substring(0, 3)),
+                    datasets: [{
+                        data: weekday.map(w => w.count),
+                        backgroundColor: weekday.map((w, i) => i === 5 || i === 6
+                            ? 'rgba(40, 167, 69, 0.6)'
+                            : 'rgba(0, 136, 204, 0.6)'),
+                        borderWidth: 1
+                    }]
+                },
+                options: chartDefaults()
+            });
+        }
+
+        function renderMonthlyChart(monthly) {
+            const ctx = document.getElementById('monthly-chart');
+            if (!ctx) return;
+            new Chart(ctx.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: monthly.map(m => m.month),
+                    datasets: [{
+                        data: monthly.map(m => m.count),
+                        borderColor: '#0088cc',
+                        backgroundColor: 'rgba(0, 136, 204, 0.1)',
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 3,
+                        pointHoverRadius: 6
+                    }]
+                },
+                options: chartDefaults()
+            });
+        }
+
+        function renderDailyChart(daily) {
+            const ctx = document.getElementById('daily-chart');
+            if (!ctx) return;
+            // Reverse to chronological order
+            const sorted = [...daily].reverse();
+            new Chart(ctx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: sorted.map(d => d.date.substring(5)),  // MM-DD
+                    datasets: [{
+                        data: sorted.map(d => d.count),
+                        backgroundColor: 'rgba(0, 136, 204, 0.4)',
+                        borderColor: 'rgba(0, 136, 204, 0.8)',
+                        borderWidth: 1
+                    }]
+                },
+                options: chartDefaults()
+            });
+        }
+    </script>
+</body>
+</html>
