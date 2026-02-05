@@ -75,42 +75,6 @@
             </div>
         </header>
 
-        <!-- AI Search Section -->
-        <section class="chart-card" style="margin-bottom: var(--spacing-xl); border: 2px solid var(--primary);">
-            <div class="chart-header">
-                <h3>🤖 AI Search - שאל שאלות בשפה טבעית</h3>
-            </div>
-            <div style="padding: var(--spacing-md);">
-                <div style="display: flex; gap: var(--spacing-md); margin-bottom: var(--spacing-md);">
-                    <input type="text" id="ai-query" style="flex: 1; padding: var(--spacing-md); font-size: 1rem;"
-                           placeholder="שאל שאלה... למשל: מי כתב הכי הרבה? מתי דיברו על X? מי הכי פעיל בלילה?"
-                           onkeypress="if(event.key==='Enter') aiSearch()">
-                    <select id="ai-mode" style="padding: var(--spacing-md); border-radius: var(--radius-md); background: var(--bg-sidebar); color: var(--text-primary); border: 1px solid var(--border-color);">
-                        <option value="auto">Auto</option>
-                        <option value="semantic">Semantic (חיפוש לפי משמעות)</option>
-                        <option value="context">Context (AI קורא הודעות)</option>
-                        <option value="sql">SQL Search</option>
-                    </select>
-                    <button onclick="aiSearch()" class="btn btn-primary" style="padding: var(--spacing-md) var(--spacing-lg);">
-                        🤖 שאל AI
-                    </button>
-                </div>
-                <div id="ai-result" style="display: none; padding: var(--spacing-md); background: var(--bg-sidebar); border-radius: var(--radius-md); border-right: 3px solid var(--primary);">
-                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: var(--spacing-sm);">🤖 תשובה:</div>
-                    <div id="ai-answer" style="line-height: 1.6; white-space: pre-wrap;"></div>
-                    <details style="margin-top: var(--spacing-sm);">
-                        <summary style="cursor: pointer; color: var(--text-muted); font-size: 0.75rem;">הצג SQL</summary>
-                        <pre id="ai-sql" style="font-size: 0.75rem; margin-top: var(--spacing-sm); overflow-x: auto; background: var(--bg-dark); padding: var(--spacing-sm); border-radius: var(--radius-sm);"></pre>
-                    </details>
-                </div>
-                <div style="margin-top: var(--spacing-sm); font-size: 0.75rem; color: var(--text-muted);">
-                    💡 SQL: "מי שלח הכי הרבה?" | "מתי היו הכי הרבה הודעות?"<br>
-                    🔮 Semantic: "שיחות על עבודה" | "הודעות עצובות" (חיפוש לפי משמעות, לא מילים)<br>
-                    🧠 Context: "באיזה בית חולים האחות עובדת?" (AI קורא ומבין הקשר)
-                </div>
-            </div>
-        </section>
-
         <!-- Search Box -->
         <section class="search-box">
             <input type="search" id="search-input" class="search-input"
