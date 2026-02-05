@@ -18,14 +18,14 @@ COPY schema.sql .
 COPY static/ static/
 COPY templates/ templates/
 
-# Copy database (must be present at build time or mounted as volume)
+# Copy database
 COPY telegram.db .
 
-# Environment
-ENV PORT=8080
+# HF Spaces uses port 7860
+ENV PORT=7860
 ENV HOST=0.0.0.0
 ENV DB_PATH=telegram.db
 
-EXPOSE 8080
+EXPOSE 7860
 
-CMD ["gunicorn", "dashboard:app", "--bind", "0.0.0.0:8080", "--workers", "2", "--timeout", "120"]
+CMD ["gunicorn", "dashboard:app", "--bind", "0.0.0.0:7860", "--workers", "2", "--timeout", "120"]

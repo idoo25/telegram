@@ -1,3 +1,12 @@
+---
+title: Telegram Analytics Dashboard
+emoji: 📊
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+---
+
 # Telegram JSON Indexer & Analyzer
 
 A high-performance system for indexing, searching, and analyzing Telegram chat exports using SQLite FTS5 and advanced algorithms from Data Structures course. Includes a full-featured **Web Dashboard** with **AI-powered search**.
