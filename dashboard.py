@@ -1114,8 +1114,12 @@ def api_chat_messages():
             m.text_plain as text,
             m.reply_to_message_id,
             m.forwarded_from,
+            m.forwarded_from_id,
             m.has_media,
+            m.has_photo,
             m.has_links as has_link,
+            m.has_mentions,
+            m.is_edited,
             r.from_name as reply_to_name,
             substr(r.text_plain, 1, 100) as reply_to_text
         FROM messages m
@@ -1128,6 +1132,28 @@ def api_chat_messages():
 
     cursor = conn.execute(query, params)
     messages = [dict(row) for row in cursor.fetchall()]
+
+    # Fetch entities (links, mentions) for these messages
+    if messages:
+        msg_ids = [m['id'] for m in messages]
+        placeholders = ','.join('?' * len(msg_ids))
+        ent_cursor = conn.execute(f"""
+            SELECT message_id, type, value
+            FROM entities
+            WHERE message_id IN ({placeholders})
+        """, msg_ids)
+
+        # Group entities by message_id
+        entities_map = {}
+        for row in ent_cursor.fetchall():
+            mid = row[0]
+            if mid not in entities_map:
+                entities_map[mid] = []
+            entities_map[mid].append({'type': row[1], 'value': row[2]})
+
+        # Attach entities to messages
+        for msg in messages:
+            msg['entities'] = entities_map.get(msg['id'], [])
 
     conn.close()
 

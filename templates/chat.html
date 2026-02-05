@@ -5,31 +5,47 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chat View - Telegram Style</title>
     <style>
-        /* Telegram Export Style - Based on official export */
+        /* ===== Telegram-like Chat Viewer ===== */
+        :root {
+            --bg-primary: #0e1621;
+            --bg-secondary: #17212b;
+            --bg-message: #182533;
+            --bg-hover: #1e2c3a;
+            --bg-reply: rgba(77, 184, 255, 0.08);
+            --bg-forward: rgba(100, 191, 71, 0.08);
+            --text-primary: #f5f5f5;
+            --text-secondary: #8b9fad;
+            --text-link: #6ab2f2;
+            --accent-blue: #6ab2f2;
+            --accent-green: #6dc264;
+            --border-reply: #6ab2f2;
+            --border-forward: #6dc264;
+            --date-badge: #1b2a38;
+            --nav-bg: #17212b;
+            --nav-border: #0e1621;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
         body {
-            margin: 0;
-            font: 14px/20px 'Open Sans', "Lucida Grande", "Lucida Sans Unicode", Arial, Helvetica, Verdana, sans-serif;
-            background-color: #1a2026;
-            color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
         }
 
-        * {
-            box-sizing: border-box;
-        }
-
-        /* Navigation */
+        /* ===== Navigation ===== */
         .nav-bar {
             position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
+            top: 0; left: 0; right: 0;
             z-index: 100;
-            background-color: #1a2026;
-            border-bottom: 1px solid #2c333d;
+            background-color: var(--nav-bg);
+            border-bottom: 1px solid var(--nav-border);
             padding: 0 16px;
         }
 
-        .nav-bar .nav-content {
+        .nav-content {
             max-width: 800px;
             margin: 0 auto;
             display: flex;
@@ -38,47 +54,45 @@
             height: 56px;
         }
 
-        .nav-bar a {
-            color: #4db8ff;
-            text-decoration: none;
-            padding: 8px 16px;
-            border-radius: 8px;
-            font-size: 13px;
-        }
-
-        .nav-bar a:hover {
-            background-color: #2c333d;
-        }
-
-        .nav-bar a.active {
-            background-color: #4db8ff;
-            color: #1a2026;
-        }
-
         .nav-title {
             font-size: 18px;
             font-weight: 700;
-            color: #ffffff;
+            color: var(--text-primary);
         }
 
-        /* Page Layout */
-        .page_wrap {
+        .nav-links { display: flex; gap: 4px; }
+
+        .nav-links a {
+            color: var(--accent-blue);
+            text-decoration: none;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            transition: background 0.15s;
+        }
+
+        .nav-links a:hover { background-color: var(--bg-hover); }
+
+        .nav-links a.active {
+            background-color: var(--accent-blue);
+            color: var(--bg-primary);
+        }
+
+        /* ===== Chat Area ===== */
+        .chat-wrap {
             padding-top: 56px;
             min-height: 100vh;
         }
 
-        .page_body {
-            max-width: 600px;
+        .chat-body {
+            max-width: 680px;
             margin: 0 auto;
-            padding-bottom: 80px;
+            padding: 0 12px 80px;
         }
 
-        /* History/Messages Container */
-        .history {
-            padding: 16px;
-        }
+        .history { padding: 8px 0; }
 
-        /* Load More Button */
+        /* ===== Load More ===== */
         .load-more {
             text-align: center;
             padding: 16px;
@@ -86,265 +100,382 @@
 
         .load-more button {
             padding: 10px 24px;
-            background-color: #2c333d;
-            color: #4db8ff;
-            border: 1px solid #4db8ff;
+            background-color: var(--bg-secondary);
+            color: var(--accent-blue);
+            border: 1px solid rgba(106, 178, 242, 0.3);
             border-radius: 20px;
             cursor: pointer;
             font-size: 14px;
+            transition: all 0.15s;
         }
 
         .load-more button:hover {
-            background-color: #323a45;
+            background-color: var(--bg-hover);
+            border-color: var(--accent-blue);
         }
 
-        .load-more button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
+        .load-more button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        /* ===== Date Separator ===== */
+        .date-separator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px 0;
+            position: sticky;
+            top: 60px;
+            z-index: 10;
         }
 
-        /* Date Separator - Service Message */
-        .message.service {
-            text-align: center;
-            padding: 16px 0;
-        }
-
-        .message.service .body {
-            display: inline-block;
-            padding: 6px 16px;
-            background-color: #2c333d;
-            border-radius: 16px;
-            color: #91979e;
+        .date-badge {
+            padding: 4px 12px;
+            background-color: var(--date-badge);
+            border-radius: 12px;
+            color: var(--text-secondary);
             font-size: 13px;
+            font-weight: 500;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.2);
         }
 
-        /* Message Bubble */
-        .message.default {
-            padding: 6px 0;
+        /* ===== Message ===== */
+        .msg {
             display: flex;
             align-items: flex-start;
             gap: 10px;
+            padding: 3px 8px;
+            border-radius: 8px;
+            transition: background 0.15s;
         }
 
-        .message.default.joined {
-            padding-top: 2px;
-        }
+        .msg:hover { background-color: var(--bg-hover); }
 
-        .message.default.joined .userpic_wrap {
-            visibility: hidden;
-        }
+        .msg.joined { padding-top: 1px; }
+        .msg.joined .avatar-wrap { visibility: hidden; height: 0; }
 
-        /* User Avatar */
-        .userpic_wrap {
-            flex-shrink: 0;
-        }
+        /* ===== Avatar ===== */
+        .avatar-wrap { flex-shrink: 0; padding-top: 2px; }
 
-        .userpic {
-            width: 42px;
-            height: 42px;
+        .avatar {
+            width: 40px;
+            height: 40px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             font-weight: 600;
-            font-size: 16px;
-            color: #ffffff;
-            text-transform: uppercase;
+            font-size: 15px;
+            color: #fff;
+            cursor: pointer;
         }
 
-        /* Userpic Colors */
-        .userpic1 { background-color: #ff5555; }
-        .userpic2 { background-color: #64bf47; }
-        .userpic3 { background-color: #ffab00; }
-        .userpic4 { background-color: #4f9cd9; }
-        .userpic5 { background-color: #9884e8; }
-        .userpic6 { background-color: #e671a5; }
-        .userpic7 { background-color: #47bcd1; }
-        .userpic8 { background-color: #ff8c44; }
+        .avatar:hover { filter: brightness(1.15); }
 
-        /* Message Body */
-        .message .body {
+        /* 8 Telegram avatar colors */
+        .c1 { background: #ff5555; }
+        .c2 { background: #64bf47; }
+        .c3 { background: #ffab00; }
+        .c4 { background: #4f9cd9; }
+        .c5 { background: #9884e8; }
+        .c6 { background: #e671a5; }
+        .c7 { background: #47bcd1; }
+        .c8 { background: #ff8c44; }
+
+        /* Name colors to match avatars */
+        .name-c1 { color: #ff5555; }
+        .name-c2 { color: #64bf47; }
+        .name-c3 { color: #ffab00; }
+        .name-c4 { color: #4f9cd9; }
+        .name-c5 { color: #9884e8; }
+        .name-c6 { color: #e671a5; }
+        .name-c7 { color: #47bcd1; }
+        .name-c8 { color: #ff8c44; }
+
+        /* ===== Message Body ===== */
+        .msg-body {
             flex: 1;
             min-width: 0;
         }
 
-        .message .from_name {
-            color: #4db8ff;
-            font-weight: 700;
+        /* Header: name + time */
+        .msg-header {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            margin-bottom: 2px;
+        }
+
+        .msg-name {
+            font-weight: 600;
             font-size: 14px;
-            margin-bottom: 4px;
-        }
-
-        .message .text {
-            word-wrap: break-word;
-            line-height: 1.5;
-            unicode-bidi: plaintext;
-            text-align: start;
-            color: #ffffff;
-        }
-
-        .message .date {
-            color: #91979e;
-            font-size: 12px;
-            float: left;
-            margin-top: 4px;
-        }
-
-        /* Reply */
-        .reply_to {
-            padding: 8px 12px;
-            margin-bottom: 8px;
-            border-right: 3px solid #4db8ff;
-            background-color: rgba(77, 184, 255, 0.1);
-            border-radius: 4px;
             cursor: pointer;
         }
 
-        .reply_to:hover {
-            background-color: rgba(77, 184, 255, 0.2);
+        .msg-name:hover { text-decoration: underline; }
+
+        .msg-time {
+            color: var(--text-secondary);
+            font-size: 12px;
+            white-space: nowrap;
         }
 
-        .reply_to .reply_name {
-            color: #4db8ff;
+        .msg-edited {
+            color: var(--text-secondary);
+            font-size: 11px;
+            font-style: italic;
+        }
+
+        /* ===== Reply Block ===== */
+        .reply-block {
+            display: flex;
+            gap: 0;
+            margin: 4px 0 6px;
+            padding: 6px 10px;
+            border-radius: 6px;
+            border-right: 3px solid var(--border-reply);
+            background: var(--bg-reply);
+            cursor: pointer;
+            overflow: hidden;
+            transition: background 0.15s;
+        }
+
+        .reply-block:hover { background: rgba(106, 178, 242, 0.15); }
+
+        .reply-content { min-width: 0; }
+
+        .reply-name {
             font-weight: 600;
             font-size: 13px;
+            color: var(--accent-blue);
         }
 
-        .reply_to .reply_text {
-            color: #91979e;
+        .reply-text {
             font-size: 13px;
+            color: var(--text-secondary);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            max-width: 400px;
         }
 
-        /* Forwarded */
-        .forwarded {
-            padding: 8px 12px;
-            margin-bottom: 8px;
-            border-right: 3px solid #64bf47;
-            background-color: rgba(100, 191, 71, 0.1);
-            border-radius: 4px;
+        /* ===== Forward Block ===== */
+        .forward-block {
+            margin: 4px 0 6px;
+            padding: 6px 10px;
+            border-radius: 6px;
+            border-right: 3px solid var(--border-forward);
+            background: var(--bg-forward);
         }
 
-        .forwarded .forward_from {
-            color: #64bf47;
+        .forward-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .forward-name {
             font-weight: 600;
             font-size: 13px;
+            color: var(--accent-green);
         }
 
-        /* Media indicators */
-        .media_indicator {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 10px;
-            background-color: #2c333d;
-            border-radius: 8px;
-            margin-top: 8px;
-            font-size: 13px;
-            color: #91979e;
+        /* ===== Message Text ===== */
+        .msg-text {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            line-height: 1.55;
+            unicode-bidi: plaintext;
+            text-align: start;
+            white-space: pre-wrap;
         }
 
-        /* Links */
-        a {
-            color: #4db8ff;
+        .msg-text a {
+            color: var(--text-link);
             text-decoration: none;
         }
 
-        a:hover {
-            text-decoration: underline;
+        .msg-text a:hover { text-decoration: underline; }
+
+        /* Mention */
+        .mention {
+            color: var(--accent-blue);
+            font-weight: 500;
+            cursor: pointer;
         }
 
-        /* Selected message */
-        .message.selected {
-            background-color: rgba(77, 184, 255, 0.15);
+        .mention:hover { text-decoration: underline; }
+
+        /* Hashtag */
+        .hashtag {
+            color: var(--accent-blue);
+            cursor: pointer;
+        }
+
+        /* Code */
+        .msg-text code {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            background: rgba(255,255,255,0.06);
+            padding: 1px 5px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .msg-text pre {
+            background: rgba(0,0,0,0.3);
+            padding: 10px 12px;
             border-radius: 8px;
-            transition: background-color 0.5s ease;
+            margin: 6px 0;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.4;
         }
 
-        /* Scroll to bottom button */
-        .scroll-bottom {
+        /* ===== Entities (links, media) ===== */
+        .entity-links {
+            margin-top: 6px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .entity-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 4px 10px;
+            background: rgba(106, 178, 242, 0.1);
+            border-radius: 8px;
+            font-size: 13px;
+            color: var(--text-link);
+            text-decoration: none;
+            max-width: 350px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            transition: background 0.15s;
+        }
+
+        .entity-link:hover {
+            background: rgba(106, 178, 242, 0.2);
+            text-decoration: none;
+        }
+
+        .entity-link .link-icon { font-size: 11px; }
+        .entity-link .link-domain {
+            opacity: 0.7;
+            font-size: 12px;
+        }
+
+        /* ===== Media Badge ===== */
+        .media-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 10px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            margin-top: 6px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .media-badge .media-icon { font-size: 14px; }
+
+        /* ===== Time for joined messages ===== */
+        .msg-time-inline {
+            color: var(--text-secondary);
+            font-size: 12px;
+            margin-top: 2px;
+            opacity: 0;
+            transition: opacity 0.15s;
+        }
+
+        .msg:hover .msg-time-inline { opacity: 1; }
+
+        /* ===== Selected (highlight on go-to) ===== */
+        .msg.selected {
+            background-color: rgba(106, 178, 242, 0.15);
+            transition: background-color 2s ease;
+        }
+
+        /* ===== Scroll-to-bottom ===== */
+        .scroll-btn {
             position: fixed;
             bottom: 24px;
-            right: 24px;
-            width: 48px;
-            height: 48px;
-            background-color: #4db8ff;
-            color: #1a2026;
-            border: none;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 44px;
+            height: 44px;
+            background: var(--bg-secondary);
+            color: var(--accent-blue);
+            border: 1px solid rgba(106, 178, 242, 0.3);
             border-radius: 50%;
             cursor: pointer;
-            font-size: 24px;
+            font-size: 20px;
             display: none;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            box-shadow: 0 2px 12px rgba(0,0,0,0.4);
             z-index: 80;
+            transition: all 0.15s;
         }
 
-        .scroll-bottom.visible {
-            display: flex;
+        .scroll-btn.visible { display: flex; }
+        .scroll-btn:hover {
+            background: var(--accent-blue);
+            color: var(--bg-primary);
         }
 
-        .scroll-bottom:hover {
-            background-color: #61c0ff;
-        }
-
-        /* Loading */
+        /* ===== Loading ===== */
         .loading {
             text-align: center;
             padding: 24px;
-            color: #91979e;
+            color: var(--text-secondary);
         }
 
-        .loading-spinner {
+        .spinner {
             display: inline-block;
-            width: 24px;
-            height: 24px;
-            border: 3px solid #2c333d;
-            border-top-color: #4db8ff;
+            width: 24px; height: 24px;
+            border: 3px solid var(--bg-secondary);
+            border-top-color: var(--accent-blue);
             border-radius: 50%;
             animation: spin 1s linear infinite;
+            margin-bottom: 8px;
         }
 
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* Toast */
+        /* ===== Toast ===== */
         .toast {
             position: fixed;
-            bottom: 100px;
+            bottom: 80px;
             left: 50%;
             transform: translateX(-50%);
-            background-color: rgba(0,0,0,0.8);
+            background: rgba(0,0,0,0.85);
             color: #fff;
-            padding: 12px 24px;
-            border-radius: 24px;
+            padding: 10px 24px;
+            border-radius: 20px;
             z-index: 200;
             opacity: 0;
             transition: opacity 0.3s;
+            font-size: 13px;
         }
 
-        .toast.visible {
-            opacity: 1;
-        }
+        .toast.visible { opacity: 1; }
 
-        /* Clearfix */
-        .clearfix:after {
-            content: "";
-            display: table;
-            clear: both;
+        /* ===== Responsive ===== */
+        @media (max-width: 700px) {
+            .nav-links a { padding: 6px 8px; font-size: 12px; }
+            .chat-body { padding: 0 4px 80px; }
+            .reply-text { max-width: 200px; }
+            .entity-link { max-width: 250px; }
         }
     </style>
 </head>
 <body>
-    <!-- Navigation -->
     <nav class="nav-bar">
         <div class="nav-content">
             <div class="nav-title">Chat View</div>
-            <div>
+            <div class="nav-links">
                 <a href="/">Overview</a>
                 <a href="/users">Users</a>
                 <a href="/chat" class="active">Chat</a>
@@ -355,45 +486,35 @@
         </div>
     </nav>
 
-    <div class="page_wrap">
-        <div class="page_body chat_page">
+    <div class="chat-wrap">
+        <div class="chat-body">
             <div class="history" id="history">
-                <!-- Load more button at top -->
                 <div class="load-more" id="load-more-top">
-                    <button onclick="loadOlderMessages()" id="load-older-btn">Load earlier messages</button>
+                    <button onclick="loadOlderMessages()" id="load-older-btn">&#8593; Load earlier messages</button>
                 </div>
-
-                <!-- Messages will be inserted here -->
                 <div id="messages-container"></div>
-
-                <!-- Loading indicator -->
                 <div class="loading" id="loading">
-                    <div class="loading-spinner"></div>
+                    <div class="spinner"></div>
                     <div>Loading messages...</div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Scroll to bottom button -->
-    <button class="scroll-bottom" id="scroll-bottom" onclick="scrollToBottom()">&#8595;</button>
-
-    <!-- Toast notification -->
+    <button class="scroll-btn" id="scroll-bottom" onclick="scrollToBottom()">&#8595;</button>
     <div class="toast" id="toast"></div>
 
     <script>
-        // State
+        // ===== State =====
         let allMessages = [];
         let oldestOffset = 0;
-        let newestLoaded = false;
         let totalMessages = 0;
         let loading = false;
         let initialLoad = true;
         const BATCH_SIZE = 100;
-
-        // User colors cache
         const userColors = {};
 
+        // ===== Utilities =====
         function getUserColor(userId) {
             if (!userColors[userId]) {
                 let hash = 0;
@@ -409,174 +530,227 @@
         function getInitials(name) {
             if (!name) return '?';
             const parts = name.trim().split(/\s+/);
-            if (parts.length >= 2) {
-                return (parts[0][0] + parts[1][0]).toUpperCase();
-            }
+            if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
             return name.substring(0, 2).toUpperCase();
         }
 
         function formatDate(dateStr) {
             if (!dateStr) return '';
-            const date = new Date(dateStr);
-            return date.toLocaleDateString('en-US', {
-                day: 'numeric',
-                month: 'long',
-                year: 'numeric'
-            });
+            const d = new Date(dateStr);
+            const months = ['January','February','March','April','May','June',
+                           'July','August','September','October','November','December'];
+            return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
         }
 
         function formatTime(dateStr) {
             if (!dateStr) return '';
-            const date = new Date(dateStr);
-            return date.toLocaleTimeString('en-US', {
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: false
-            });
+            const d = new Date(dateStr);
+            return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
         }
 
         function escapeHtml(text) {
             if (!text) return '';
             const div = document.createElement('div');
             div.textContent = text;
-            return div.innerHTML.replace(/\n/g, '<br>');
+            return div.innerHTML;
         }
 
-        function renderMessage(msg, prevMsg) {
-            const container = document.createElement('div');
+        function getDomain(url) {
+            try {
+                return new URL(url).hostname.replace('www.', '');
+            } catch {
+                return url.substring(0, 30);
+            }
+        }
 
-            // Check if we need a date separator
+        // ===== Text Formatting =====
+        function formatMessageText(text, entities) {
+            if (!text) return '';
+            let html = escapeHtml(text);
+
+            // Auto-linkify URLs in text
+            html = html.replace(
+                /(https?:\/\/[^\s<]+)/g,
+                '<a href="$1" target="_blank" rel="noopener">$1</a>'
+            );
+
+            // Highlight @mentions
+            html = html.replace(
+                /@(\w{3,})/g,
+                '<span class="mention">@$1</span>'
+            );
+
+            // Highlight #hashtags
+            html = html.replace(
+                /#(\w{2,})/g,
+                '<span class="hashtag">#$1</span>'
+            );
+
+            // Convert newlines to <br>
+            html = html.replace(/\n/g, '<br>');
+
+            return html;
+        }
+
+        // ===== Render Message =====
+        function renderMessage(msg, prevMsg) {
+            const frag = document.createDocumentFragment();
+
+            // Date separator
             const msgDate = msg.date ? msg.date.split('T')[0] : '';
             const prevDate = prevMsg && prevMsg.date ? prevMsg.date.split('T')[0] : '';
 
             if (msgDate !== prevDate) {
-                const dateDiv = document.createElement('div');
-                dateDiv.className = 'message service';
-                dateDiv.innerHTML = `<div class="body">${formatDate(msg.date)}</div>`;
-                container.appendChild(dateDiv);
+                const sep = document.createElement('div');
+                sep.className = 'date-separator';
+                sep.innerHTML = `<div class="date-badge">${formatDate(msg.date)}</div>`;
+                frag.appendChild(sep);
             }
 
-            // Check if same user as previous message (joined)
+            // Joined message? (same user, same day, within 5 minutes)
             const isJoined = prevMsg &&
-                             prevMsg.from_id === msg.from_id &&
-                             msgDate === prevDate;
+                prevMsg.from_id === msg.from_id &&
+                msgDate === prevDate &&
+                !msg.forwarded_from &&
+                !prevMsg.forwarded_from &&
+                timeDiffMinutes(prevMsg.date, msg.date) < 5;
 
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message default clearfix${isJoined ? ' joined' : ''}`;
-            messageDiv.id = `message${msg.message_id || msg.id}`;
+            const colorNum = getUserColor(msg.from_id);
+            const el = document.createElement('div');
+            el.className = `msg${isJoined ? ' joined' : ''}`;
+            el.id = `message${msg.message_id || msg.id}`;
 
-            const colorClass = `userpic${getUserColor(msg.from_id)}`;
-            const initials = getInitials(msg.from_name);
+            let html = '';
 
-            let html = `
-                <div class="userpic_wrap">
-                    <div class="userpic ${colorClass}">
-                        ${initials}
-                    </div>
-                </div>
-                <div class="body">
-            `;
+            // Avatar
+            html += `<div class="avatar-wrap">
+                <div class="avatar c${colorNum}">${getInitials(msg.from_name)}</div>
+            </div>`;
 
+            // Body
+            html += '<div class="msg-body">';
+
+            // Header (name + time) - only for first message in group
             if (!isJoined) {
-                html += `
-                    <div class="from_name">
-                        ${escapeHtml(msg.from_name || 'Unknown')}
-                        <span class="date">${formatTime(msg.date)}</span>
-                    </div>
-                `;
+                html += `<div class="msg-header">
+                    <span class="msg-name name-c${colorNum}">${escapeHtml(msg.from_name || 'Unknown')}</span>
+                    <span class="msg-time">${formatTime(msg.date)}</span>
+                    ${msg.is_edited ? '<span class="msg-edited">edited</span>' : ''}
+                </div>`;
             }
 
-            // Reply
-            if (msg.reply_to_message_id && msg.reply_to_name) {
-                html += `
-                    <div class="reply_to" onclick="goToMessage(${msg.reply_to_message_id})">
-                        <div class="reply_name">${escapeHtml(msg.reply_to_name)}</div>
-                        <div class="reply_text">${escapeHtml(msg.reply_to_text || '')}</div>
-                    </div>
-                `;
-            }
-
-            // Forwarded
+            // Forward block
             if (msg.forwarded_from) {
-                html += `
-                    <div class="forwarded">
-                        <div class="forward_from">Forwarded from ${escapeHtml(msg.forwarded_from)}</div>
+                html += `<div class="forward-block">
+                    <div class="forward-label">Forwarded message</div>
+                    <div class="forward-name">${escapeHtml(msg.forwarded_from)}</div>
+                </div>`;
+            }
+
+            // Reply block
+            if (msg.reply_to_message_id && msg.reply_to_name) {
+                html += `<div class="reply-block" onclick="goToMessage(${msg.reply_to_message_id})">
+                    <div class="reply-content">
+                        <div class="reply-name">${escapeHtml(msg.reply_to_name)}</div>
+                        <div class="reply-text">${escapeHtml(msg.reply_to_text || '')}</div>
                     </div>
-                `;
+                </div>`;
             }
 
-            // Text
+            // Message text
             if (msg.text) {
-                html += `<div class="text">${escapeHtml(msg.text)}</div>`;
+                html += `<div class="msg-text">${formatMessageText(msg.text, msg.entities)}</div>`;
             }
 
-            // Media indicator
+            // Entity links (extracted from DB)
+            const links = (msg.entities || []).filter(e => e.type === 'link' || e.type === 'text_link');
+            if (links.length > 0) {
+                html += '<div class="entity-links">';
+                const seen = new Set();
+                for (const link of links) {
+                    const url = link.value;
+                    if (seen.has(url)) continue;
+                    seen.add(url);
+                    // Skip if the link is already visible in the text
+                    if (msg.text && msg.text.includes(url)) continue;
+                    const domain = getDomain(url);
+                    html += `<a class="entity-link" href="${escapeHtml(url)}" target="_blank" rel="noopener">
+                        <span class="link-icon">🔗</span>
+                        <span class="link-domain">${escapeHtml(domain)}</span>
+                    </a>`;
+                }
+                html += '</div>';
+            }
+
+            // Media badge
             if (msg.has_media) {
-                html += `<div class="media_indicator">Media attached</div>`;
+                const icon = msg.has_photo ? '📷' : '📎';
+                const label = msg.has_photo ? 'Photo' : 'Media';
+                html += `<div class="media-badge"><span class="media-icon">${icon}</span> ${label}</div>`;
             }
 
-            // Link indicator
-            if (msg.has_link) {
-                html += `<div class="media_indicator">Contains link</div>`;
-            }
-
-            // Time for joined messages
+            // Time for joined messages (shown on hover)
             if (isJoined) {
-                html += `<div class="date">${formatTime(msg.date)}</div>`;
+                html += `<div class="msg-time-inline">${formatTime(msg.date)}${msg.is_edited ? ' · edited' : ''}</div>`;
             }
 
-            html += '</div>';
-            messageDiv.innerHTML = html;
-            container.appendChild(messageDiv);
+            html += '</div>'; // close msg-body
+            el.innerHTML = html;
+            frag.appendChild(el);
 
-            return container;
+            return frag;
         }
 
+        function timeDiffMinutes(dateStr1, dateStr2) {
+            if (!dateStr1 || !dateStr2) return 999;
+            return Math.abs(new Date(dateStr2) - new Date(dateStr1)) / 60000;
+        }
+
+        // ===== Render All =====
+        function renderAllMessages() {
+            const container = document.getElementById('messages-container');
+            container.innerHTML = '';
+            for (let i = 0; i < allMessages.length; i++) {
+                container.appendChild(renderMessage(allMessages[i], i > 0 ? allMessages[i-1] : null));
+            }
+        }
+
+        // ===== Load Messages =====
         async function loadInitialMessages() {
             if (loading) return;
             loading = true;
-
             document.getElementById('loading').style.display = 'block';
 
             try {
-                // First, get total count
-                const countResponse = await fetch('/api/chat/messages?limit=1&offset=0');
-                const countData = await countResponse.json();
+                const countRes = await fetch('/api/chat/messages?limit=1&offset=0');
+                const countData = await countRes.json();
                 totalMessages = countData.total || 0;
 
                 if (totalMessages === 0) {
                     document.getElementById('loading').style.display = 'none';
-                    document.getElementById('messages-container').innerHTML = '<div class="message service"><div class="body">No messages found</div></div>';
+                    document.getElementById('messages-container').innerHTML =
+                        '<div class="date-separator"><div class="date-badge">No messages found</div></div>';
                     loading = false;
                     return;
                 }
 
-                // Calculate offset to get the NEWEST messages (at the end)
-                // We want newest at bottom, so load from near the end
                 const startOffset = Math.max(0, totalMessages - BATCH_SIZE);
                 oldestOffset = startOffset;
 
-                const response = await fetch(`/api/chat/messages?limit=${BATCH_SIZE}&offset=${startOffset}`);
-                const data = await response.json();
+                const res = await fetch(`/api/chat/messages?limit=${BATCH_SIZE}&offset=${startOffset}`);
+                const data = await res.json();
 
                 if (data.messages && data.messages.length > 0) {
-                    // Messages come in ASC order (oldest first), ready for display
                     allMessages = data.messages;
                     renderAllMessages();
+                    setTimeout(() => { scrollToBottom(); initialLoad = false; }, 100);
 
-                    // Scroll to bottom after render
-                    setTimeout(() => {
-                        scrollToBottom();
-                        initialLoad = false;
-                    }, 100);
-
-                    // Hide load more if at the beginning
                     if (oldestOffset <= 0) {
                         document.getElementById('load-more-top').style.display = 'none';
                     }
                 }
-            } catch (error) {
-                console.error('Error loading messages:', error);
+            } catch (e) {
+                console.error('Error loading messages:', e);
                 showToast('Error loading messages');
             }
 
@@ -584,54 +758,35 @@
             document.getElementById('loading').style.display = 'none';
         }
 
-        function renderAllMessages() {
-            const container = document.getElementById('messages-container');
-            container.innerHTML = '';
-
-            for (let i = 0; i < allMessages.length; i++) {
-                const msg = allMessages[i];
-                const prevMsg = i > 0 ? allMessages[i - 1] : null;
-                const rendered = renderMessage(msg, prevMsg);
-                container.appendChild(rendered);
-            }
-        }
-
         async function loadOlderMessages() {
             if (loading || oldestOffset <= 0) return;
-
             loading = true;
             document.getElementById('load-older-btn').disabled = true;
 
             try {
-                // Calculate new offset for older messages
                 const newOffset = Math.max(0, oldestOffset - BATCH_SIZE);
                 const limit = oldestOffset - newOffset;
 
-                const response = await fetch(`/api/chat/messages?limit=${limit}&offset=${newOffset}`);
-                const data = await response.json();
+                const res = await fetch(`/api/chat/messages?limit=${limit}&offset=${newOffset}`);
+                const data = await res.json();
 
                 if (data.messages && data.messages.length > 0) {
-                    // Save scroll position
                     const container = document.getElementById('messages-container');
-                    const scrollHeightBefore = container.scrollHeight;
+                    const scrollBefore = container.scrollHeight;
 
-                    // Prepend older messages (they go to top)
-                    const olderMessages = data.messages;
-                    allMessages = [...olderMessages, ...allMessages];
+                    allMessages = [...data.messages, ...allMessages];
                     oldestOffset = newOffset;
-
                     renderAllMessages();
 
-                    // Restore scroll position (keep viewing same content)
-                    const scrollHeightAfter = container.scrollHeight;
-                    window.scrollBy(0, scrollHeightAfter - scrollHeightBefore);
+                    const scrollAfter = container.scrollHeight;
+                    window.scrollBy(0, scrollAfter - scrollBefore);
 
                     if (oldestOffset <= 0) {
                         document.getElementById('load-more-top').style.display = 'none';
                     }
                 }
-            } catch (error) {
-                console.error('Error loading older messages:', error);
+            } catch (e) {
+                console.error('Error loading older messages:', e);
                 showToast('Error loading messages');
             }
 
@@ -639,48 +794,37 @@
             document.getElementById('load-older-btn').disabled = false;
         }
 
+        // ===== Navigation =====
         function goToMessage(messageId) {
-            const element = document.getElementById(`message${messageId}`);
-            if (element) {
-                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                element.classList.add('selected');
-                setTimeout(() => {
-                    element.classList.remove('selected');
-                }, 2000);
+            const el = document.getElementById(`message${messageId}`);
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                el.classList.add('selected');
+                setTimeout(() => el.classList.remove('selected'), 2500);
             } else {
-                showToast('Message not found in current view');
+                showToast('Message not in current view');
             }
         }
 
         function scrollToBottom() {
-            window.scrollTo({
-                top: document.body.scrollHeight,
-                behavior: 'smooth'
-            });
+            window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
         }
 
         function showToast(message) {
             const toast = document.getElementById('toast');
             toast.textContent = message;
             toast.classList.add('visible');
-            setTimeout(() => {
-                toast.classList.remove('visible');
-            }, 3000);
+            setTimeout(() => toast.classList.remove('visible'), 3000);
         }
 
-        // Show/hide scroll to bottom button
+        // Scroll button visibility
         window.addEventListener('scroll', () => {
-            const scrollBtn = document.getElementById('scroll-bottom');
-            const scrolledFromBottom = document.body.scrollHeight - window.scrollY - window.innerHeight;
-
-            if (scrolledFromBottom > 500) {
-                scrollBtn.classList.add('visible');
-            } else {
-                scrollBtn.classList.remove('visible');
-            }
+            const btn = document.getElementById('scroll-bottom');
+            const dist = document.body.scrollHeight - window.scrollY - window.innerHeight;
+            btn.classList.toggle('visible', dist > 500);
         });
 
-        // Initial load
+        // ===== Init =====
         loadInitialMessages();
     </script>
 </body>
