@@ -1873,10 +1873,9 @@ def api_ai_similar(message_id):
 def api_update_database():
     """
     Update database with new JSON data.
-
-    Accepts JSON file upload or raw JSON in request body.
-    Only new messages (not already in DB) will be added.
+    Disabled in production - updates are done locally via daily_sync.py.
     """
+    return jsonify({'error': 'Database updates are disabled on this server. Run daily_sync.py locally.'}), 403
     try:
         # Check if file was uploaded
         if 'file' in request.files:
