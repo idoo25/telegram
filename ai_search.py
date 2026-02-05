@@ -61,21 +61,43 @@ class AISearchEngine:
             raise ValueError(f"Provider {provider} not available. Install required packages.")
 
     def _get_db_schema(self) -> str:
-        """Get database schema for context."""
-        return """
-        Database Schema:
-        - messages: id, message_id, date, from_id, from_name, text, reply_to_message_id,
-                   forwarded_from, media_type, has_link, char_count
-        - messages_fts: Full-text search on text content (use MATCH for search)
-        - users: user_id, name (aggregated from messages)
+        """Dynamically read schema from the actual database to stay in sync."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
 
-        Key columns:
-        - date: ISO format datetime (e.g., '2024-01-15T14:30:00')
-        - from_name: User's display name
-        - reply_to_message_id: ID of message being replied to (NULL if not a reply)
-        - has_link: 1 if message contains URL, 0 otherwise
-        - media_type: 'photo', 'video', 'document', etc. or NULL
-        """
+        # Get all tables and their columns
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+        tables = [row[0] for row in cursor.fetchall()]
+
+        schema_parts = ["Database Schema:"]
+        for table in tables:
+            cursor.execute(f"PRAGMA table_info({table})")
+            cols = cursor.fetchall()
+            col_names = [f"{c[1]} ({c[2]})" for c in cols]
+            schema_parts.append(f"  - {table}: {', '.join(col_names)}")
+
+        # Note virtual tables (FTS5) separately
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE '%fts5%'")
+        fts_tables = [row[0] for row in cursor.fetchall()]
+        if fts_tables:
+            schema_parts.append(f"\n  FTS5 tables (use MATCH for search): {', '.join(fts_tables)}")
+
+        conn.close()
+
+        schema_parts.append("""
+        Key notes:
+        - date_unixtime: Unix timestamp (INTEGER), use for date comparisons
+        - date: ISO format string (TEXT), use for display
+        - text_plain: Message text content
+        - text_length: Character count of the message
+        - has_links: 1 if message contains URL, 0 otherwise (note: plural)
+        - has_media: 1 if message has any media attachment
+        - has_photo: 1 if message has a photo specifically
+        - from_id: TEXT user ID (e.g., 'user356173100')
+        - For text search: SELECT * FROM messages WHERE id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH 'term')
+        """)
+
+        return '\n'.join(schema_parts)
 
     def _get_sample_data(self) -> str:
         """Get sample data for context."""
@@ -120,11 +142,11 @@ IMPORTANT RULES:
 1. Return ONLY valid SQLite query, no explanations
 2. For text search, use: SELECT * FROM messages WHERE id IN (SELECT id FROM messages_fts WHERE messages_fts MATCH 'search_term')
 3. For Hebrew text, the FTS5 will handle it correctly
-4. Always include relevant columns like date, from_name, text
+4. Always include relevant columns like date, from_name, text_plain
 5. Limit results to 50 unless specified
 6. For "who" questions, GROUP BY from_name and COUNT(*)
 7. For "when" questions, include date in SELECT
-8. For threads/replies, JOIN messages m2 ON m1.reply_to_message_id = m2.message_id
+8. For threads/replies, JOIN messages m2 ON m1.reply_to_message_id = m2.id
 
 User question: {user_query}
 

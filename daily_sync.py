@@ -604,14 +604,20 @@ def run_sync(hours: int = 36, skip_embeddings: bool = False):
         log.info("[4/4] Generating embeddings for new messages...")
         emb_stats = generate_embeddings(messages_json)
 
-    # Notify running server to reload embeddings
-    if emb_stats.get('new_embeddings', 0) > 0:
+    # Notify running server to invalidate caches and reload embeddings
+    has_changes = (index_stats.get('new_messages', 0) > 0
+                   or part_stats.get('synced', 0) > 0
+                   or emb_stats.get('new_embeddings', 0) > 0)
+    if has_changes:
         try:
             import urllib.request
-            req = urllib.request.urlopen('http://localhost:5000/api/embeddings/reload', timeout=5)
-            log.info("Server notified to reload embeddings")
+            urllib.request.urlopen('http://localhost:5000/api/cache/invalidate', timeout=5)
+            log.info("Server caches invalidated")
+            if emb_stats.get('new_embeddings', 0) > 0:
+                urllib.request.urlopen('http://localhost:5000/api/embeddings/reload', timeout=5)
+                log.info("Server notified to reload embeddings")
         except Exception:
-            log.info("Server not running or unreachable - embeddings will load on next restart")
+            log.info("Server not running or unreachable - caches will refresh on next restart")
 
     # Summary
     elapsed = time.time() - start_time
