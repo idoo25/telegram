@@ -183,18 +183,23 @@ def telethon_message_to_json(message) -> dict | None:
     forwarded_from_id = None
     if message.forward:
         fwd = message.forward
-        if fwd.sender:
-            if hasattr(fwd.sender, 'first_name'):
-                parts = [fwd.sender.first_name or '']
-                if fwd.sender.last_name:
-                    parts.append(fwd.sender.last_name)
-                forwarded_from = ' '.join(parts).strip()
-                forwarded_from_id = f'user{fwd.sender.id}'
-            elif hasattr(fwd.sender, 'title'):
-                forwarded_from = fwd.sender.title
-                forwarded_from_id = f'channel{fwd.sender.id}'
-        elif fwd.sender_name:
-            forwarded_from = fwd.sender_name
+        try:
+            if fwd.sender:
+                if hasattr(fwd.sender, 'first_name'):
+                    parts = [fwd.sender.first_name or '']
+                    if fwd.sender.last_name:
+                        parts.append(fwd.sender.last_name)
+                    forwarded_from = ' '.join(parts).strip()
+                    forwarded_from_id = f'user{fwd.sender.id}'
+                elif hasattr(fwd.sender, 'title'):
+                    forwarded_from = fwd.sender.title
+                    forwarded_from_id = f'channel{fwd.sender.id}'
+            elif getattr(fwd, 'sender_name', None):
+                forwarded_from = fwd.sender_name
+            elif getattr(fwd, 'from_name', None):
+                forwarded_from = fwd.from_name
+        except Exception:
+            pass  # Skip forward info if any attribute is missing
 
     # Photo info
     photo_info = {}
