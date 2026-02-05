@@ -834,11 +834,12 @@ input:focus {
 
     .sidebar.open {
         width: 250px;
+        overflow-y: auto;
     }
 
-    .sidebar.open .logo-text,
-    .sidebar.open .nav-link span:not(.icon) {
-        display: inline;
+    /* Reset the 992px display:none - sidebar is hidden by width:0 anyway */
+    .logo-text, .nav-link span:not(.icon) {
+        display: inline !important;
     }
 
     .sidebar-overlay {
