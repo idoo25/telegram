@@ -4,13 +4,13 @@
 This review covers architecture, correctness, performance, maintainability, testing, documentation, UX, and operational considerations for the Telegram JSON Indexer & Analyzer. **Security is intentionally omitted per request.**
 
 ## Executive Summary
-The project is well-structured around a clear pipeline: Telegram JSON export → SQLite + FTS5 index → analytics/search APIs → Flask dashboard. The code demonstrates thoughtful algorithmic choices (Top‑K heap, rank trees, LCS similarity) and provides optional AI/semantic search. The largest opportunities are around schema alignment for AI prompts, memory usage during indexing, and robustness for optional modules when data is missing.
+The project is well-structured around a clear pipeline: Telegram JSON export → SQLite + FTS5 index → analytics/search APIs → Flask dashboard. The code demonstrates thoughtful algorithmic choices (Top-K heap, rank trees, LCS similarity) and provides optional AI/semantic search. The largest opportunities are around schema alignment for AI prompts, memory usage during indexing, and robustness for optional modules when data is missing.
 
 ## Architecture & Data Flow
 - **Indexer (`indexer.py`)**: Parses Telegram exports, extracts entities, and writes to SQLite with FTS5 and auxiliary tables (trigrams, reply graph).
 - **Schema (`schema.sql`)**: Normalized tables + FTS5 with triggers and performance indices.
-- **Search (`search.py`)**: Full‑text search with optional fuzzy search and caching.
-- **Analytics (`analyzer.py`)**: Stats, top‑K, percentiles, similarity detection.
+- **Search (`search.py`)**: Full-text search with optional fuzzy search and caching.
+- **Analytics (`analyzer.py`)**: Stats, top-K, percentiles, similarity detection.
 - **Dashboard (`dashboard.py`)**: Flask UI and JSON APIs for analytics/search.
 - **AI / Semantic Search (`ai_search.py`, `semantic_search.py`, `vector_search.py`)**: Optional enhancements for natural language and vector similarity.
 
@@ -42,11 +42,11 @@ The project is well-structured around a clear pipeline: Telegram JSON export →
 
 ### Analytics & Algorithms
 **Strengths**
-- The algorithm module is well‑documented and offers efficient alternatives to full sorts.
+- The algorithm module is well-documented and offers efficient alternatives to full sorts.
 - Clear API in `TelegramAnalyzer` for stats and rankings.
 
 **Findings & Recommendations**
-- Consider adding targeted tests for analyzer methods (top‑users, percentiles, similar messages) to match algorithm coverage.
+- Consider adding targeted tests for analyzer methods (top-users, percentiles, similar messages) to match algorithm coverage.
 
 ### Dashboard & UI
 **Strengths**
@@ -61,16 +61,16 @@ The project is well-structured around a clear pipeline: Telegram JSON export →
 ### AI / Semantic Search
 **Strengths**
 - Optional dependencies are gated with clear error messages.
-- Query‑to‑SQL prompt includes good guidance for output format.
+- Query-to-SQL prompt includes good guidance for output format.
 
 **Findings & Recommendations**
 1. **Empty embedding set handling**
    - `SemanticSearch._load_embeddings` calls `np.vstack(self.embeddings)` without guarding for an empty table, which raises `ValueError` on empty datasets.
-   - _Recommendation_: Short‑circuit when no embeddings are found and return empty results gracefully.
+   - _Recommendation_: Short-circuit when no embeddings are found and return empty results gracefully.
 
-## Cross‑Cutting Quality Areas
+## Cross-Cutting Quality Areas
 ### Correctness & Edge Cases
-- Parsing handles list‑based Telegram text and entities correctly.
+- Parsing handles list-based Telegram text and entities correctly.
 - Potential correctness gaps are mostly around AI prompt schema mismatches and empty embedding tables.
 
 ### Performance & Scalability
@@ -78,7 +78,7 @@ The project is well-structured around a clear pipeline: Telegram JSON export →
 - Streaming JSON input would be the biggest scalability boost for large exports.
 
 ### Maintainability
-- Modules are logically separated and well‑documented.
+- Modules are logically separated and well-documented.
 - Using `print` for logging can make troubleshooting harder at scale; consider a lightweight logging wrapper with levels.
 
 ### Testing
@@ -90,7 +90,7 @@ The project is well-structured around a clear pipeline: Telegram JSON export →
 - README is thorough and explains setup and features.
 - Consider documenting AI config defaults and how to set API keys without editing source.
 
-## Actionable Checklist (Non‑Security)
+## Actionable Checklist (Non-Security)
 - [ ] Stream large JSON inputs to reduce memory usage.
 - [ ] Align AI prompt schema with `schema.sql` (or generate dynamically).
 - [ ] Add cache invalidation hooks for query caching when DB updates.
