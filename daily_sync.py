@@ -267,8 +267,17 @@ async def fetch_messages(config: dict, hours: int = 36) -> list[dict]:
 
     log.info(f"Connected to Telegram")
 
-    # Resolve group
-    entity = await client.get_entity(group)
+    # Resolve group - handle numeric IDs properly
+    if isinstance(group, str) and group.lstrip('-').isdigit():
+        group = int(group)
+    if isinstance(group, int) and group < 0:
+        # Convert Telegram Web format to Telethon PeerChannel
+        # -100XXXXXXXXXX → channel_id = XXXXXXXXXX
+        from telethon.tl.types import PeerChannel
+        channel_id = int(str(group).replace('-100', ''))
+        entity = await client.get_entity(PeerChannel(channel_id))
+    else:
+        entity = await client.get_entity(group)
     log.info(f"Fetching from: {getattr(entity, 'title', group)}")
 
     # Calculate time window
