@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Search - Telegram Analytics</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .ai-container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .ai-search-box {
+            background: var(--card-bg);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-lg);
+            margin-bottom: var(--spacing-lg);
+            border: 1px solid var(--border-color);
+        }
+        .ai-search-input {
+            width: 100%;
+            padding: var(--spacing-md);
+            font-size: 1.1rem;
+            border: 2px solid var(--border-color);
+            border-radius: var(--radius-md);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            margin-bottom: var(--spacing-md);
+            direction: rtl;
+        }
+        .ai-search-input:focus {
+            outline: none;
+            border-color: var(--accent-color);
+        }
+        .ai-search-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: var(--spacing-md) var(--spacing-xl);
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .ai-search-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        .ai-search-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .ai-answer-box {
+            background: var(--card-bg);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-lg);
+            margin-bottom: var(--spacing-lg);
+            border: 1px solid var(--border-color);
+            display: none;
+        }
+        .ai-answer-box.visible {
+            display: block;
+        }
+        .ai-answer-header {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            margin-bottom: var(--spacing-md);
+            color: var(--accent-color);
+            font-weight: 600;
+        }
+        .ai-answer-content {
+            font-size: 1.1rem;
+            line-height: 1.8;
+            color: var(--text-primary);
+            white-space: pre-wrap;
+        }
+        .ai-sources {
+            margin-top: var(--spacing-lg);
+            padding-top: var(--spacing-lg);
+            border-top: 1px solid var(--border-color);
+        }
+        .ai-sources-header {
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: var(--spacing-md);
+        }
+        .source-item {
+            background: var(--bg-secondary);
+            border-radius: var(--radius-md);
+            padding: var(--spacing-md);
+            margin-bottom: var(--spacing-sm);
+            border-right: 3px solid var(--accent-color);
+        }
+        .source-meta {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: var(--spacing-xs);
+        }
+        .source-text {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+        .context-message {
+            background: var(--bg-secondary);
+            border-radius: var(--radius-md);
+            padding: var(--spacing-md);
+            margin-bottom: var(--spacing-sm);
+            border-right: 3px solid transparent;
+        }
+        .context-message.main {
+            border-right-color: var(--accent-color);
+            background: var(--card-bg);
+        }
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--spacing-xs);
+            padding: var(--spacing-xs) var(--spacing-sm);
+            border-radius: var(--radius-sm);
+            font-size: 0.8rem;
+            margin-right: var(--spacing-sm);
+        }
+        .status-badge.available {
+            background: rgba(46, 204, 113, 0.2);
+            color: #2ecc71;
+        }
+        .status-badge.unavailable {
+            background: rgba(231, 76, 60, 0.2);
+            color: #e74c3c;
+        }
+        .example-queries {
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--spacing-sm);
+            margin-top: var(--spacing-md);
+        }
+        .example-query {
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+            padding: var(--spacing-xs) var(--spacing-sm);
+            border-radius: var(--radius-sm);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .example-query:hover {
+            background: var(--accent-color);
+            color: white;
+            border-color: var(--accent-color);
+        }
+        .loading-animation {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+        }
+        .loading-dots {
+            display: flex;
+            gap: 4px;
+        }
+        .loading-dots span {
+            width: 8px;
+            height: 8px;
+            background: var(--accent-color);
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+        .loading-dots span:nth-child(1) { animation-delay: -0.32s; }
+        .loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+    <button class="mobile-menu-btn" onclick="toggleMobileMenu()">&#9776;</button>
+    <div class="sidebar-overlay" onclick="toggleMobileMenu()"></div>
+    <!-- Sidebar -->
+    <nav class="sidebar">
+        <div class="logo">
+            <span class="logo-icon">&#128202;</span>
+            <span class="logo-text">TG Analytics</span>
+        </div>
+        <ul class="nav-menu">
+            <li class="nav-item">
+                <a href="/" class="nav-link">
+                    <span class="icon">&#128200;</span>
+                    <span>Overview</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/users" class="nav-link">
+                    <span class="icon">&#128101;</span>
+                    <span>Users</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/chat" class="nav-link">
+                    <span class="icon">&#128172;</span>
+                    <span>Chat</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/search" class="nav-link">
+                    <span class="icon">&#128269;</span>
+                    <span>Search</span>
+                </a>
+            </li>
+            <li class="nav-item active">
+                <a href="/ai-search" class="nav-link">
+                    <span class="icon">&#129302;</span>
+                    <span>AI Search</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/moderation" class="nav-link">
+                    <span class="icon">&#128737;</span>
+                    <span>Moderation</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/settings" class="nav-link">
+                    <span class="icon">&#9881;</span>
+                    <span>Settings</span>
+                </a>
+            </li>
+        </ul>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Header -->
+        <header class="header">
+            <h1>&#129302; AI Search</h1>
+            <div class="header-controls">
+                <span id="gemini-status" class="status-badge unavailable">Checking...</span>
+            </div>
+        </header>
+
+        <div class="ai-container">
+            <!-- Search Box -->
+            <div class="ai-search-box">
+                <input type="text" id="ai-query" class="ai-search-input"
+                       placeholder="&#1513;&#1488;&#1500; &#1513;&#1488;&#1500;&#1492; &#1489;&#1513;&#1508;&#1492; &#1496;&#1489;&#1506;&#1497;&#1514;... (&#1488;&#1497;&#1508;&#1492; &#1491;&#1504;&#1497; &#1490;&#1512;?)"
+                       onkeypress="if(event.key === 'Enter') performAISearch()">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--spacing-md);">
+                    <button onclick="performAISearch()" class="ai-search-btn" id="search-btn">
+                        <span>&#129302;</span> Search with AI
+                    </button>
+                    <div class="example-queries">
+                        <span style="color: var(--text-muted); font-size: 0.85rem;">Examples:</span>
+                        <button class="example-query" onclick="setQuery('&#1488;&#1497;&#1508;&#1492; &#1491;&#1504;&#1497; &#1490;&#1512;?')">&#1488;&#1497;&#1508;&#1492; &#1491;&#1504;&#1497; &#1490;&#1512;?</button>
+                        <button class="example-query" onclick="setQuery('&#1502;&#1497; &#1492;&#1499;&#1497; &#1508;&#1506;&#1497;&#1500; &#1489;&#1511;&#1489;&#1493;&#1510;&#1492;?')">&#1502;&#1497; &#1492;&#1499;&#1497; &#1508;&#1506;&#1497;&#1500;?</button>
+                        <button class="example-query" onclick="setQuery('&#1502;&#1492; &#1491;&#1497;&#1489;&#1512;&#1493; &#1506;&#1500; &#1492;&#1489;&#1495;&#1497;&#1512;&#1493;&#1514;?')">&#1502;&#1492; &#1491;&#1497;&#1489;&#1512;&#1493; &#1506;&#1500;...?</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Answer Box -->
+            <div class="ai-answer-box" id="answer-box">
+                <div class="ai-answer-header">
+                    <span>&#129302;</span> AI Answer
+                </div>
+                <div class="ai-answer-content" id="answer-content">
+                    <!-- Answer will be inserted here -->
+                </div>
+                <div class="ai-sources" id="sources-section" style="display: none;">
+                    <div class="ai-sources-header">&#128214; Sources Used</div>
+                    <div id="sources-list">
+                        <!-- Sources will be inserted here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- How it works -->
+            <div class="chart-card">
+                <div class="chart-header">
+                    <h3>&#128161; How AI Search Works</h3>
+                </div>
+                <div style="padding: var(--spacing-md); color: var(--text-secondary); font-size: 0.9rem; direction: rtl;">
+                    <ol style="line-height: 2;">
+                        <li><strong>Hybrid Search</strong> - &#1502;&#1495;&#1508;&#1513; &#1489;-BM25 (&#1502;&#1497;&#1500;&#1497;&#1501;) + Vector Search (&#1502;&#1513;&#1502;&#1506;&#1493;&#1514;)</li>
+                        <li><strong>Thread Chunking</strong> - &#1502;&#1511;&#1489;&#1509; &#1513;&#1488;&#1500;&#1493;&#1514; &#1493;&#1514;&#1513;&#1493;&#1489;&#1493;&#1514; &#1497;&#1495;&#1491;</li>
+                        <li><strong>Query Expansion</strong> - &#1502;&#1512;&#1495;&#1497;&#1489; &#1488;&#1514; &#1492;&#1513;&#1488;&#1497;&#1500;&#1514;&#1492; &#1506;&#1501; &#1502;&#1497;&#1500;&#1497;&#1501; &#1504;&#1512;&#1491;&#1508;&#1493;&#1514;</li>
+                        <li><strong>Gemini 1.5 Flash</strong> - &#1502;&#1505;&#1499;&#1501; &#1488;&#1514; &#1492;&#1514;&#1493;&#1510;&#1488;&#1493;&#1514; &#1500;&#1514;&#1513;&#1493;&#1489;&#1492; &#1488;&#1495;&#1514;</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Check Gemini status on load
+        async function checkGeminiStatus() {
+            try {
+                const response = await fetch('/api/gemini/status');
+                const data = await response.json();
+
+                const badge = document.getElementById('gemini-status');
+                if (data.available) {
+                    badge.className = 'status-badge available';
+                    badge.innerHTML = '&#10003; Gemini Ready';
+                } else {
+                    badge.className = 'status-badge unavailable';
+                    badge.innerHTML = '&#10007; Gemini Unavailable';
+                }
+            } catch (e) {
+                const badge = document.getElementById('gemini-status');
+                badge.className = 'status-badge unavailable';
+                badge.innerHTML = '&#10007; Error';
+            }
+        }
+
+        function setQuery(query) {
+            document.getElementById('ai-query').value = query;
+            document.getElementById('ai-query').focus();
+        }
+
+        async function performAISearch() {
+            const query = document.getElementById('ai-query').value.trim();
+            if (!query) return;
+
+            const btn = document.getElementById('search-btn');
+            const answerBox = document.getElementById('answer-box');
+            const answerContent = document.getElementById('answer-content');
+            const sourcesSection = document.getElementById('sources-section');
+            const sourcesList = document.getElementById('sources-list');
+
+            // Show loading
+            btn.disabled = true;
+            btn.innerHTML = '<div class="loading-animation"><div class="loading-dots"><span></span><span></span><span></span></div> Searching...</div>';
+
+            answerBox.classList.add('visible');
+            answerContent.innerHTML = '<div class="loading-animation"><div class="loading-dots"><span></span><span></span><span></span></div> <span>Searching and analyzing...</span></div>';
+            sourcesSection.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/gemini/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query, limit: 5 })
+                });
+
+                const data = await response.json();
+
+                if (data.error && !data.answer) {
+                    answerContent.innerHTML = `<span style="color: #e74c3c;">&#10060; Error: ${escapeHtml(data.error)}</span>`;
+                } else if (data.success === false && data.error) {
+                    // Gemini not available, show hybrid results
+                    answerContent.innerHTML = `<span style="color: #f39c12;">&#9888; ${escapeHtml(data.error)}</span><br><br>Showing search results without AI summarization:`;
+
+                    if (data.search_results && data.search_results.length > 0) {
+                        displaySources(data.search_results);
+                    }
+                } else {
+                    // Success with AI answer
+                    answerContent.textContent = data.answer || 'No answer available';
+
+                    // Show sources
+                    if (data.search_results && data.search_results.length > 0) {
+                        displaySources(data.search_results);
+                    } else if (data.sources && data.sources.length > 0) {
+                        displaySourcesMeta(data.sources);
+                    }
+                }
+            } catch (error) {
+                answerContent.innerHTML = `<span style="color: #e74c3c;">&#10060; Error: ${escapeHtml(error.message)}</span>`;
+            }
+
+            // Reset button
+            btn.disabled = false;
+            btn.innerHTML = '<span>&#129302;</span> Search with AI';
+        }
+
+        function displaySources(results) {
+            const sourcesSection = document.getElementById('sources-section');
+            const sourcesList = document.getElementById('sources-list');
+
+            sourcesSection.style.display = 'block';
+
+            sourcesList.innerHTML = results.map(result => {
+                const msg = result.message || result;
+                const score = result.score ? ` (${(result.score * 100).toFixed(0)}%)` : '';
+
+                let html = `<div class="source-item">
+                    <div class="source-meta">
+                        ${escapeHtml(msg.from_name || 'Unknown')} - ${msg.date || ''}${score}
+                    </div>
+                    <div class="source-text">${escapeHtml((msg.text || '').substring(0, 200))}${(msg.text || '').length > 200 ? '...' : ''}</div>`;
+
+                // Show context if available
+                if (result.context_before && result.context_before.length > 0) {
+                    html += '<div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px dashed var(--border-color);">';
+                    result.context_before.forEach(ctx => {
+                        html += `<div class="context-message"><small>${escapeHtml(ctx.from_name || '?')}</small>: ${escapeHtml((ctx.text_plain || '').substring(0, 100))}</div>`;
+                    });
+                    html += '</div>';
+                }
+
+                html += '</div>';
+                return html;
+            }).join('');
+        }
+
+        function displaySourcesMeta(sources) {
+            const sourcesSection = document.getElementById('sources-section');
+            const sourcesList = document.getElementById('sources-list');
+
+            if (sources.length === 0) return;
+
+            sourcesSection.style.display = 'block';
+            sourcesList.innerHTML = sources.map(src => `
+                <div class="source-item">
+                    <div class="source-meta">
+                        ${escapeHtml(src.from_name || 'Unknown')} - ${src.date || ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function toggleMobileMenu() {
+            var s = document.querySelector('.sidebar');
+            var o = document.querySelector('.sidebar-overlay');
+            s.classList.toggle('open');
+            if (o) o.classList.toggle('active');
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            checkGeminiStatus();
+            document.getElementById('ai-query').focus();
+        });
+    </script>
+</body>
+</html>

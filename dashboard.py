@@ -293,6 +293,12 @@ def settings_page():
     return render_template('settings.html')
 
 
+@app.route('/ai-search')
+def ai_search_page():
+    """AI-powered search page with Gemini."""
+    return render_template('ai_search.html')
+
+
 # ==========================================
 # API ENDPOINTS - OVERVIEW STATS
 # ==========================================
@@ -1934,6 +1940,74 @@ def api_hybrid_search():
         return jsonify({
             'error': str(e),
             'traceback': traceback.format_exc()
+        })
+
+
+@app.route('/api/gemini/search', methods=['POST'])
+def api_gemini_search():
+    """
+    AI-powered search using Gemini 1.5 Flash.
+    Combines hybrid search with Gemini for natural language answers.
+    """
+    data = request.get_json()
+    query = data.get('query', '')
+    limit = data.get('limit', 5)
+
+    if not query:
+        return jsonify({'error': 'Query required'})
+
+    try:
+        from gemini_client import ai_search, get_gemini_client
+
+        # Check if Gemini is available
+        client = get_gemini_client()
+        if not client.is_available():
+            # Fall back to hybrid search without AI
+            from hybrid_search import get_hybrid_search
+            hs = get_hybrid_search()
+            results = hs.search_with_context(query, limit=limit)
+
+            return jsonify({
+                'query': query,
+                'success': False,
+                'error': 'Gemini API not available. Set GEMINI_API_KEY environment variable.',
+                'search_results': results,
+                'count': len(results),
+                'mode': 'hybrid_only'
+            })
+
+        # Perform AI search
+        result = ai_search(query, limit=limit)
+
+        return jsonify(result)
+
+    except ImportError as e:
+        return jsonify({'error': f'AI search not available: {str(e)}'})
+    except Exception as e:
+        import traceback
+        return jsonify({
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+
+@app.route('/api/gemini/status')
+def api_gemini_status():
+    """Check Gemini API status."""
+    try:
+        from gemini_client import get_gemini_client
+        client = get_gemini_client()
+
+        api_key = os.environ.get('GEMINI_API_KEY', '')
+        return jsonify({
+            'available': client.is_available(),
+            'api_key_set': bool(api_key),
+            'api_key_preview': f"{api_key[:8]}..." if len(api_key) > 8 else None
+        })
+    except Exception as e:
+        return jsonify({
+            'available': False,
+            'error': str(e)
         })
 
 
