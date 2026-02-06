@@ -18,8 +18,7 @@ COPY schema.sql .
 COPY static/ static/
 COPY templates/ templates/
 
-# Copy database
-COPY telegram.db .
+# DB is downloaded from HF Dataset repo on startup (see ensure_db_exists in dashboard.py)
 
 # HF Spaces uses port 7860
 ENV PORT=7860
