@@ -60,8 +60,10 @@ jobs:
           python -c "
           from huggingface_hub import hf_hub_download
           import shutil
+          import os
 
           # Download main DB
+          print('Downloading telegram.db...')
           path = hf_hub_download(
               repo_id='rottg/telegram-db',
               filename='telegram.db',
@@ -69,9 +71,11 @@ jobs:
               token='$HF_TOKEN'
           )
           shutil.copy(path, 'telegram.db')
-          print('Downloaded telegram.db')
+          size = os.path.getsize('telegram.db') / (1024*1024)
+          print(f'Downloaded telegram.db ({size:.0f} MB)')
 
-          # Download embeddings DB if exists
+          # Download embeddings DB
+          print('Downloading embeddings.db...')
           try:
               path = hf_hub_download(
                   repo_id='rottg/telegram-db',
@@ -80,9 +84,11 @@ jobs:
                   token='$HF_TOKEN'
               )
               shutil.copy(path, 'embeddings.db')
-              print('Downloaded embeddings.db')
-          except:
-              print('No embeddings.db yet, will be created')
+              size = os.path.getsize('embeddings.db') / (1024*1024)
+              print(f'Downloaded embeddings.db ({size:.0f} MB)')
+          except Exception as e:
+              print(f'ERROR downloading embeddings.db: {e}')
+              print('Will skip embeddings generation')
           "
 
       - name: Run daily sync
