@@ -30,6 +30,8 @@ HF_DATASET_REPO = "rottg/telegram-db"
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH_FULL = os.path.join(APP_DIR, "telegram.db")
 EMBEDDINGS_PATH_FULL = os.path.join(APP_DIR, "embeddings.db")
+CHUNK_EMBEDDINGS_PATH = os.path.join(APP_DIR, "chunk_embeddings.db")
+BM25_INDEX_PATH = os.path.join(APP_DIR, "bm25_index.pkl")
 
 
 def download_from_hf(filename, local_path):
@@ -84,7 +86,32 @@ def ensure_db_exists():
             print(f"✓ embeddings.db downloaded ({size_mb:.0f} MB)")
         except Exception as e:
             print(f"⚠ embeddings.db not available: {e}")
-            # Not fatal - semantic search just won't work
+
+    # Download chunk_embeddings.db (for hybrid search)
+    if os.path.exists(CHUNK_EMBEDDINGS_PATH):
+        size_mb = os.path.getsize(CHUNK_EMBEDDINGS_PATH) / (1024 * 1024)
+        print(f"✓ chunk_embeddings.db found ({size_mb:.0f} MB)")
+    else:
+        print(f"[DB] Downloading chunk_embeddings.db from HF...")
+        try:
+            download_from_hf("chunk_embeddings.db", CHUNK_EMBEDDINGS_PATH)
+            size_mb = os.path.getsize(CHUNK_EMBEDDINGS_PATH) / (1024 * 1024)
+            print(f"✓ chunk_embeddings.db downloaded ({size_mb:.0f} MB)")
+        except Exception as e:
+            print(f"⚠ chunk_embeddings.db not available: {e}")
+
+    # Download bm25_index.pkl (for hybrid search)
+    if os.path.exists(BM25_INDEX_PATH):
+        size_mb = os.path.getsize(BM25_INDEX_PATH) / (1024 * 1024)
+        print(f"✓ bm25_index.pkl found ({size_mb:.0f} MB)")
+    else:
+        print(f"[DB] Downloading bm25_index.pkl from HF...")
+        try:
+            download_from_hf("bm25_index.pkl", BM25_INDEX_PATH)
+            size_mb = os.path.getsize(BM25_INDEX_PATH) / (1024 * 1024)
+            print(f"✓ bm25_index.pkl downloaded ({size_mb:.0f} MB)")
+        except Exception as e:
+            print(f"⚠ bm25_index.pkl not available: {e}")
 
     return True
 
@@ -1852,6 +1879,62 @@ def api_ai_search():
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e), 'query': query})
+
+
+@app.route('/api/hybrid/search', methods=['POST'])
+def api_hybrid_search():
+    """
+    Hybrid search combining:
+    - Chunk-based vector search (conversation context)
+    - BM25 keyword search (exact matches)
+    - Query expansion (synonyms, variations)
+    """
+    data = request.get_json()
+    query = data.get('query', '')
+    limit = data.get('limit', 20)
+    include_context = data.get('include_context', True)
+
+    if not query:
+        return jsonify({'error': 'Query required'})
+
+    try:
+        from hybrid_search import get_hybrid_search
+        hs = get_hybrid_search()
+
+        # Get stats
+        stats = hs.stats()
+        if not stats.get('chunks_available') and not stats.get('single_embeddings_available'):
+            return jsonify({
+                'error': 'No search indexes available. Run the Colab notebook first.',
+                'stats': stats
+            })
+
+        # Search with or without context
+        if include_context:
+            results = hs.search_with_context(query, limit=limit)
+        else:
+            results = hs.hybrid_search(query, limit=limit)
+
+        # Get expanded queries for display
+        expanded = hs.expand_query(query)
+
+        return jsonify({
+            'query': query,
+            'expanded_queries': expanded,
+            'results': results,
+            'count': len(results),
+            'stats': stats,
+            'mode': 'hybrid'
+        })
+
+    except ImportError as e:
+        return jsonify({'error': f'Hybrid search not available: {str(e)}'})
+    except Exception as e:
+        import traceback
+        return jsonify({
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
 
 
 def fallback_ai_search(query: str):
