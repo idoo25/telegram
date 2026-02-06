@@ -25,13 +25,33 @@ jobs:
         run: |
           pip install telethon huggingface_hub sentence-transformers torch --extra-index-url https://download.pytorch.org/whl/cpu
 
-      - name: Restore Telegram session
+      - name: Download Telegram session from HF
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          echo "${{ secrets.TELEGRAM_SESSION }}" | base64 -d > telegram_session.session
+          python -c "
+          from huggingface_hub import hf_hub_download
+          import shutil
+          path = hf_hub_download(
+              repo_id='rottg/telegram-db',
+              filename='telegram_session.session',
+              repo_type='dataset',
+              token='$HF_TOKEN'
+          )
+          shutil.copy(path, 'telegram_session.session')
+          print('Session downloaded from HF')
+          "
 
-      - name: Restore sync config
+      - name: Create sync config
         run: |
-          echo "${{ secrets.SYNC_CONFIG }}" | base64 -d > sync_config.json
+          cat > sync_config.json << 'EOF'
+          {
+            "api_id": ${{ secrets.TELEGRAM_API_ID }},
+            "api_hash": "${{ secrets.TELEGRAM_API_HASH }}",
+            "group": "${{ secrets.TELEGRAM_GROUP }}",
+            "hours": 36
+          }
+          EOF
 
       - name: Download current DB from HF Dataset
         env:
