@@ -27,8 +27,8 @@ DB_PATH = os.path.join(PROJECT_DIR, "telegram.db")
 # Files to upload to Space (code + config, NO DB)
 CODE_FILES = [
     "dashboard.py", "ai_search.py", "algorithms.py", "data_structures.py",
-    "indexer.py", "search.py", "semantic_search.py", "schema.sql",
-    "Dockerfile", "requirements.txt", "README.md",
+    "indexer.py", "search.py", "semantic_search.py", "hybrid_search.py",
+    "gemini_client.py", "schema.sql", "Dockerfile", "requirements.txt", "README.md",
 ]
 FOLDERS = ["static", "templates"]
 
