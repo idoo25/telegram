@@ -536,12 +536,16 @@
 
         function formatDate(dateStr) {
             if (!dateStr) return '';
+            // Add 'Z' to treat as UTC (Telegram stores dates in UTC without timezone indicator)
+            if (!dateStr.endsWith('Z') && !dateStr.includes('+')) dateStr += 'Z';
             const d = new Date(dateStr);
             return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Jerusalem' });
         }
 
         function formatTime(dateStr) {
             if (!dateStr) return '';
+            // Add 'Z' to treat as UTC (Telegram stores dates in UTC without timezone indicator)
+            if (!dateStr.endsWith('Z') && !dateStr.includes('+')) dateStr += 'Z';
             const d = new Date(dateStr);
             return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Jerusalem' });
         }
