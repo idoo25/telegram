@@ -4,12 +4,14 @@ Automated sync + deploy to Hugging Face.
 
 DB goes to Dataset repo (rottg/telegram-db) - no LFS limits issue.
 Code goes to Space repo (rottg/telegram-analytics).
+After DB upload, Space is restarted to load the new data.
 
 Usage:
-    python update_hf.py              # sync + upload DB to Dataset
-    python update_hf.py --db-only    # just upload DB (skip sync)
-    python update_hf.py --code-only  # just upload code to Space
-    python update_hf.py --full       # sync + upload DB + code
+    python update_hf.py              # sync + upload DB + restart Space
+    python update_hf.py --db-only    # just upload DB + restart (skip sync)
+    python update_hf.py --code-only  # just upload code (no restart needed, triggers rebuild)
+    python update_hf.py --full       # sync + upload DB + code + restart
+    python update_hf.py --no-restart # skip the Space restart
 """
 
 import subprocess
@@ -97,10 +99,23 @@ def upload_code():
     print(f"  Site will rebuild at: https://rottg-telegram-analytics.hf.space")
 
 
+def restart_space():
+    """Restart the Space to load the new DB."""
+    from huggingface_hub import HfApi
+
+    api = HfApi(token=HF_TOKEN)
+
+    print("\n=== Restarting Space to load new DB ===")
+    api.restart_space(repo_id=SPACE_REPO)
+    print("✓ Space restart triggered!")
+    print(f"  Site will be back in ~30 seconds: https://rottg-telegram-analytics.hf.space")
+
+
 def main():
     db_only = "--db-only" in sys.argv
     code_only = "--code-only" in sys.argv
     full = "--full" in sys.argv
+    no_restart = "--no-restart" in sys.argv
 
     print("=" * 50)
     print("HuggingFace Update Script")
@@ -119,6 +134,10 @@ def main():
     # Upload code to Space repo
     if code_only or full:
         upload_code()
+
+    # Restart Space to load new DB (unless --no-restart or --code-only)
+    if not code_only and not no_restart:
+        restart_space()
 
     print("\n" + "=" * 50)
     print("✓ Done!")
