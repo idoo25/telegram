@@ -28,40 +28,54 @@ from collections import defaultdict
 # ==========================================
 HF_DATASET_REPO = "rottg/telegram-db"
 DB_FILENAME = "telegram.db"
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH_FULL = os.path.join(APP_DIR, DB_FILENAME)
 
 
 def ensure_db_exists():
     """Download DB from HF Dataset repo if it doesn't exist locally."""
-    if os.path.exists(DB_FILENAME):
-        print(f"✓ Database found: {DB_FILENAME}")
+    print(f"[DB] Checking for database at: {DB_PATH_FULL}")
+    print(f"[DB] Current working directory: {os.getcwd()}")
+
+    if os.path.exists(DB_PATH_FULL):
+        size_mb = os.path.getsize(DB_PATH_FULL) / (1024 * 1024)
+        print(f"✓ Database found: {DB_PATH_FULL} ({size_mb:.0f} MB)")
         return True
 
-    print(f"Database not found locally. Downloading from HF Dataset...")
+    print(f"[DB] Database not found. Downloading from HF Dataset {HF_DATASET_REPO}...")
     try:
         from huggingface_hub import hf_hub_download
+        import shutil
 
-        # Get token from environment or file
+        # Get token from environment
         token = os.environ.get("HF_TOKEN")
+        print(f"[DB] HF_TOKEN from env: {'set' if token else 'NOT SET'}")
+
         if not token:
-            token_file = os.path.join(os.path.dirname(__file__), ".hf_token")
+            token_file = os.path.join(APP_DIR, ".hf_token")
             if os.path.exists(token_file):
                 with open(token_file) as f:
                     token = f.read().strip()
+                print(f"[DB] HF_TOKEN from file: set")
 
-        # Download the DB file
-        local_path = hf_hub_download(
+        # Download to cache, then copy to app dir
+        cached_path = hf_hub_download(
             repo_id=HF_DATASET_REPO,
             filename=DB_FILENAME,
             repo_type="dataset",
             token=token,
-            local_dir=".",
-            local_dir_use_symlinks=False
         )
-        print(f"✓ Database downloaded: {local_path}")
+        print(f"[DB] Downloaded to cache: {cached_path}")
+
+        # Copy to app directory
+        shutil.copy2(cached_path, DB_PATH_FULL)
+        size_mb = os.path.getsize(DB_PATH_FULL) / (1024 * 1024)
+        print(f"✓ Database ready: {DB_PATH_FULL} ({size_mb:.0f} MB)")
         return True
     except Exception as e:
         print(f"✗ Failed to download database: {e}")
-        print("  Make sure to upload telegram.db to the Dataset repo first.")
+        import traceback
+        traceback.print_exc()
         return False
 
 
