@@ -24,6 +24,47 @@ from typing import Optional
 from collections import defaultdict
 
 # ==========================================
+# DATABASE DOWNLOAD FROM HF DATASET
+# ==========================================
+HF_DATASET_REPO = "rottg/telegram-db"
+DB_FILENAME = "telegram.db"
+
+
+def ensure_db_exists():
+    """Download DB from HF Dataset repo if it doesn't exist locally."""
+    if os.path.exists(DB_FILENAME):
+        print(f"✓ Database found: {DB_FILENAME}")
+        return True
+
+    print(f"Database not found locally. Downloading from HF Dataset...")
+    try:
+        from huggingface_hub import hf_hub_download
+
+        # Get token from environment or file
+        token = os.environ.get("HF_TOKEN")
+        if not token:
+            token_file = os.path.join(os.path.dirname(__file__), ".hf_token")
+            if os.path.exists(token_file):
+                with open(token_file) as f:
+                    token = f.read().strip()
+
+        # Download the DB file
+        local_path = hf_hub_download(
+            repo_id=HF_DATASET_REPO,
+            filename=DB_FILENAME,
+            repo_type="dataset",
+            token=token,
+            local_dir=".",
+            local_dir_use_symlinks=False
+        )
+        print(f"✓ Database downloaded: {local_path}")
+        return True
+    except Exception as e:
+        print(f"✗ Failed to download database: {e}")
+        print("  Make sure to upload telegram.db to the Dataset repo first.")
+        return False
+
+# ==========================================
 # AI CONFIGURATION
 # Set via environment variables (e.g. in .env or hosting platform settings)
 # ==========================================
@@ -2066,6 +2107,9 @@ def main():
     parser.add_argument('--debug', action='store_true', help='Debug mode')
 
     args = parser.parse_args()
+
+    # Download DB from HF Dataset if not present
+    ensure_db_exists()
 
     global DB_PATH
     DB_PATH = args.db
