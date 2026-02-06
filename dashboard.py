@@ -64,6 +64,10 @@ def ensure_db_exists():
         print("  Make sure to upload telegram.db to the Dataset repo first.")
         return False
 
+
+# Download DB on module import (for gunicorn)
+ensure_db_exists()
+
 # ==========================================
 # AI CONFIGURATION
 # Set via environment variables (e.g. in .env or hosting platform settings)
