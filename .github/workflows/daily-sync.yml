@@ -1,0 +1,92 @@
+name: Daily Telegram Sync
+
+on:
+  schedule:
+    # Run daily at 3:00 AM UTC (5:00 AM Israel time)
+    - cron: '0 3 * * *'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install telethon huggingface_hub sentence-transformers torch --extra-index-url https://download.pytorch.org/whl/cpu
+
+      - name: Restore Telegram session
+        run: |
+          echo "${{ secrets.TELEGRAM_SESSION }}" | base64 -d > telegram_session.session
+
+      - name: Restore sync config
+        run: |
+          echo "${{ secrets.SYNC_CONFIG }}" | base64 -d > sync_config.json
+
+      - name: Download current DB from HF Dataset
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python -c "
+          from huggingface_hub import hf_hub_download
+          import shutil
+          path = hf_hub_download(
+              repo_id='rottg/telegram-db',
+              filename='telegram.db',
+              repo_type='dataset',
+              token='$HF_TOKEN'
+          )
+          shutil.copy(path, 'telegram.db')
+          print(f'Downloaded DB from HF Dataset')
+          "
+
+      - name: Run daily sync
+        run: |
+          python daily_sync.py --hours 36
+
+      - name: Upload updated DB to HF Dataset
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python -c "
+          from huggingface_hub import HfApi
+          import os
+          api = HfApi(token='$HF_TOKEN')
+          api.upload_file(
+              path_or_fileobj='telegram.db',
+              path_in_repo='telegram.db',
+              repo_id='rottg/telegram-db',
+              repo_type='dataset',
+              commit_message='Daily sync $(date -u +%Y-%m-%d)'
+          )
+          print('Uploaded DB to HF Dataset')
+          "
+
+      - name: Restart HF Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python -c "
+          from huggingface_hub import HfApi
+          api = HfApi(token='$HF_TOKEN')
+          api.restart_space(repo_id='rottg/telegram-analytics')
+          print('Space restart triggered')
+          "
+
+      - name: Summary
+        run: |
+          echo "### Sync Complete! :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- DB uploaded to HF Dataset" >> $GITHUB_STEP_SUMMARY
+          echo "- Space restart triggered" >> $GITHUB_STEP_SUMMARY
+          echo "- Site: https://rottg-telegram-analytics.hf.space" >> $GITHUB_STEP_SUMMARY
