@@ -27,59 +27,69 @@ from collections import defaultdict
 # DATABASE DOWNLOAD FROM HF DATASET
 # ==========================================
 HF_DATASET_REPO = "rottg/telegram-db"
-DB_FILENAME = "telegram.db"
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH_FULL = os.path.join(APP_DIR, DB_FILENAME)
+DB_PATH_FULL = os.path.join(APP_DIR, "telegram.db")
+EMBEDDINGS_PATH_FULL = os.path.join(APP_DIR, "embeddings.db")
+
+
+def download_from_hf(filename, local_path):
+    """Download a file from HF Dataset repo."""
+    from huggingface_hub import hf_hub_download
+    import shutil
+
+    token = os.environ.get("HF_TOKEN")
+    if not token:
+        token_file = os.path.join(APP_DIR, ".hf_token")
+        if os.path.exists(token_file):
+            with open(token_file) as f:
+                token = f.read().strip()
+
+    cached_path = hf_hub_download(
+        repo_id=HF_DATASET_REPO,
+        filename=filename,
+        repo_type="dataset",
+        token=token,
+    )
+    shutil.copy2(cached_path, local_path)
+    return True
 
 
 def ensure_db_exists():
-    """Download DB from HF Dataset repo if it doesn't exist locally."""
-    print(f"[DB] Checking for database at: {DB_PATH_FULL}")
+    """Download DBs from HF Dataset repo if they don't exist locally."""
     print(f"[DB] Current working directory: {os.getcwd()}")
 
+    # Download telegram.db
     if os.path.exists(DB_PATH_FULL):
         size_mb = os.path.getsize(DB_PATH_FULL) / (1024 * 1024)
-        print(f"✓ Database found: {DB_PATH_FULL} ({size_mb:.0f} MB)")
-        return True
+        print(f"✓ telegram.db found ({size_mb:.0f} MB)")
+    else:
+        print(f"[DB] Downloading telegram.db from HF...")
+        try:
+            download_from_hf("telegram.db", DB_PATH_FULL)
+            size_mb = os.path.getsize(DB_PATH_FULL) / (1024 * 1024)
+            print(f"✓ telegram.db downloaded ({size_mb:.0f} MB)")
+        except Exception as e:
+            print(f"✗ Failed to download telegram.db: {e}")
+            return False
 
-    print(f"[DB] Database not found. Downloading from HF Dataset {HF_DATASET_REPO}...")
-    try:
-        from huggingface_hub import hf_hub_download
-        import shutil
+    # Download embeddings.db (optional - for semantic search)
+    if os.path.exists(EMBEDDINGS_PATH_FULL):
+        size_mb = os.path.getsize(EMBEDDINGS_PATH_FULL) / (1024 * 1024)
+        print(f"✓ embeddings.db found ({size_mb:.0f} MB)")
+    else:
+        print(f"[DB] Downloading embeddings.db from HF...")
+        try:
+            download_from_hf("embeddings.db", EMBEDDINGS_PATH_FULL)
+            size_mb = os.path.getsize(EMBEDDINGS_PATH_FULL) / (1024 * 1024)
+            print(f"✓ embeddings.db downloaded ({size_mb:.0f} MB)")
+        except Exception as e:
+            print(f"⚠ embeddings.db not available: {e}")
+            # Not fatal - semantic search just won't work
 
-        # Get token from environment
-        token = os.environ.get("HF_TOKEN")
-        print(f"[DB] HF_TOKEN from env: {'set' if token else 'NOT SET'}")
-
-        if not token:
-            token_file = os.path.join(APP_DIR, ".hf_token")
-            if os.path.exists(token_file):
-                with open(token_file) as f:
-                    token = f.read().strip()
-                print(f"[DB] HF_TOKEN from file: set")
-
-        # Download to cache, then copy to app dir
-        cached_path = hf_hub_download(
-            repo_id=HF_DATASET_REPO,
-            filename=DB_FILENAME,
-            repo_type="dataset",
-            token=token,
-        )
-        print(f"[DB] Downloaded to cache: {cached_path}")
-
-        # Copy to app directory
-        shutil.copy2(cached_path, DB_PATH_FULL)
-        size_mb = os.path.getsize(DB_PATH_FULL) / (1024 * 1024)
-        print(f"✓ Database ready: {DB_PATH_FULL} ({size_mb:.0f} MB)")
-        return True
-    except Exception as e:
-        print(f"✗ Failed to download database: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+    return True
 
 
-# Download DB on module import (for gunicorn)
+# Download DBs on module import (for gunicorn)
 ensure_db_exists()
 
 # ==========================================
