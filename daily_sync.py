@@ -522,12 +522,12 @@ def generate_embeddings(messages_json: list[dict]) -> dict:
 
     log.info(f"Generating embeddings for {len(new_messages)} new messages...")
 
-    # Load model
+    # Load model (same as Colab - e5 for better Hebrew support)
     from sentence_transformers import SentenceTransformer
-    model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+    model = SentenceTransformer('intfloat/multilingual-e5-large')
 
-    # Generate embeddings
-    texts = [m['text'][:500] for m in new_messages]  # Max 500 chars per message
+    # Generate embeddings (e5 model requires "query: " prefix)
+    texts = [f"query: {m['text'][:500]}" for m in new_messages]  # Max 500 chars per message
     embeddings = model.encode(texts, show_progress_bar=True, convert_to_numpy=True,
                               batch_size=64)
 
