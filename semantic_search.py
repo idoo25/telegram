@@ -43,7 +43,7 @@ class SemanticSearch:
             )
         if self.model is None:
             print("Loading embedding model...")
-            self.model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+            self.model = SentenceTransformer('intfloat/multilingual-e5-large')
             print("Model loaded!")
 
     def reload_embeddings(self):
@@ -117,8 +117,8 @@ class SemanticSearch:
         if len(self.message_ids) == 0:
             return []
 
-        # Encode query
-        query_emb = self.model.encode([query], convert_to_numpy=True)[0]
+        # Encode query (e5 model requires "query: " prefix)
+        query_emb = self.model.encode([f"query: {query}"], convert_to_numpy=True)[0]
 
         # Compute cosine similarity with all embeddings
         # embeddings are already normalized from Colab
@@ -384,7 +384,7 @@ Answer:"""
             'available': True,
             'count': count,
             'size_mb': round(size_mb, 1),
-            'model': 'paraphrase-multilingual-MiniLM-L12-v2'
+            'model': 'intfloat/multilingual-e5-large'
         }
 
 
