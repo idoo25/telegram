@@ -29,9 +29,16 @@ jobs:
         run: |
           echo "${{ secrets.TELEGRAM_SESSION }}" | base64 -d > telegram_session.session
 
-      - name: Restore sync config
+      - name: Create sync config
         run: |
-          echo "${{ secrets.SYNC_CONFIG }}" | base64 -d > sync_config.json
+          cat > sync_config.json << 'EOF'
+          {
+            "api_id": ${{ secrets.TELEGRAM_API_ID }},
+            "api_hash": "${{ secrets.TELEGRAM_API_HASH }}",
+            "group": "${{ secrets.TELEGRAM_GROUP }}",
+            "hours": 36
+          }
+          EOF
 
       - name: Download current DB from HF Dataset
         env:
