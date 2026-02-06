@@ -80,10 +80,21 @@ class HybridSearch:
         print(f"Loading chunk embeddings from {self.chunk_embeddings_db}...")
         conn = sqlite3.connect(self.chunk_embeddings_db)
 
-        rows = conn.execute("""
-            SELECT chunk_id, text, message_ids, anchor_message_id, embedding
-            FROM chunk_embeddings
-        """).fetchall()
+        # Check if chunk_type column exists (for backwards compatibility)
+        cursor = conn.execute("PRAGMA table_info(chunk_embeddings)")
+        columns = [col[1] for col in cursor.fetchall()]
+        has_type = 'chunk_type' in columns
+
+        if has_type:
+            rows = conn.execute("""
+                SELECT chunk_id, chunk_type, text, message_ids, anchor_message_id, embedding
+                FROM chunk_embeddings
+            """).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT chunk_id, 'window' as chunk_type, text, message_ids, anchor_message_id, embedding
+                FROM chunk_embeddings
+            """).fetchall()
         conn.close()
 
         if not rows:
@@ -94,11 +105,12 @@ class HybridSearch:
         emb_list = []
 
         for row in rows:
-            chunk_id, text, msg_ids_json, anchor_id, emb_blob = row
+            chunk_id, chunk_type, text, msg_ids_json, anchor_id, emb_blob = row
             emb = np.frombuffer(emb_blob, dtype=np.float32)
             emb_list.append(emb)
             self.chunk_data.append({
                 'chunk_id': chunk_id,
+                'chunk_type': chunk_type,
                 'text': text,
                 'message_ids': json.loads(msg_ids_json),
                 'anchor_message_id': anchor_id
@@ -217,6 +229,7 @@ class HybridSearch:
             chunk = self.chunk_data[idx]
             results.append({
                 'type': 'chunk',
+                'chunk_type': chunk.get('chunk_type', 'window'),  # 'thread' or 'window'
                 'chunk_id': chunk['chunk_id'],
                 'text': chunk['text'],
                 'message_ids': chunk['message_ids'],

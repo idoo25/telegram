@@ -194,8 +194,9 @@ print("="*50)
 # FULL SCRIPT (uncomment and run in Colab)
 # ============================================
 FULL_SCRIPT = '''
-# === HYBRID SEARCH SETUP FOR COLAB ===
+# === HYBRID SEARCH WITH THREAD CHUNKING ===
 # Run this entire cell in Google Colab
+# Creates chunks based on reply threads (Q&A together) + time windows for orphans
 
 !pip install -q sentence-transformers huggingface_hub rank_bm25
 
@@ -207,14 +208,16 @@ import pickle
 import re
 import os
 import shutil
+from collections import defaultdict
 from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 from rank_bm25 import BM25Okapi
 
 # === CONFIGURATION ===
-HF_TOKEN = "YOUR_HF_TOKEN_HERE"  # Replace with your HuggingFace token  # Your HF token
-WINDOW_SIZE = 5  # Messages per chunk
-OVERLAP = 3      # Overlap between chunks
+HF_TOKEN = "YOUR_HF_TOKEN_HERE"  # Replace with your HuggingFace token
+MAX_THREAD_LENGTH = 10  # Max messages per thread chunk
+WINDOW_SIZE = 5  # For orphan messages
+OVERLAP = 2
 
 # === DOWNLOAD DB ===
 print("Downloading telegram.db...")
@@ -232,7 +235,7 @@ print("Loading messages...")
 conn = sqlite3.connect('telegram.db')
 conn.row_factory = sqlite3.Row
 messages = conn.execute("""
-    SELECT id, date, from_name, text_plain
+    SELECT id, date, date_unixtime, from_name, text_plain, reply_to_message_id
     FROM messages
     WHERE text_plain IS NOT NULL AND LENGTH(text_plain) > 5
     ORDER BY date_unixtime ASC
@@ -240,33 +243,103 @@ messages = conn.execute("""
 conn.close()
 print(f"✓ Loaded {len(messages):,} messages")
 
+# === BUILD THREAD MAP ===
+print("Building thread map...")
+msg_by_id = {m['id']: dict(m) for m in messages}
+children = defaultdict(list)
+
+for msg in messages:
+    reply_to = msg['reply_to_message_id']
+    if reply_to and reply_to in msg_by_id:
+        children[reply_to].append(msg['id'])
+
+# Find roots and messages in threads
+roots = set()
+in_thread = set()
+
+for msg in messages:
+    msg_id = msg['id']
+    reply_to = msg['reply_to_message_id']
+
+    if reply_to and reply_to in msg_by_id:
+        in_thread.add(msg_id)
+        # Find root
+        current = reply_to
+        while current in msg_by_id:
+            parent = msg_by_id[current].get('reply_to_message_id')
+            if parent and parent in msg_by_id:
+                current = parent
+            else:
+                break
+        roots.add(current)
+        in_thread.add(current)
+
+print(f"✓ Found {len(roots):,} thread roots")
+
+# === BUILD THREADS ===
+def collect_thread(root_id):
+    thread = [msg_by_id[root_id]]
+    queue = list(children[root_id])
+    while queue:
+        child_id = queue.pop(0)
+        if child_id in msg_by_id:
+            thread.append(msg_by_id[child_id])
+            queue.extend(children[child_id])
+    thread.sort(key=lambda x: x.get('date_unixtime', 0))
+    return thread
+
+threads = {}
+for root_id in tqdm(roots, desc="Building threads"):
+    thread = collect_thread(root_id)
+    if len(thread) >= 2:
+        threads[root_id] = thread
+
+orphans = [msg_by_id[m['id']] for m in messages if m['id'] not in in_thread]
+print(f"✓ {len(threads):,} threads, {len(orphans):,} orphan messages")
+
 # === CREATE CHUNKS ===
-print("Creating conversation chunks...")
-STEP = WINDOW_SIZE - OVERLAP
+print("Creating chunks...")
 chunks = []
+chunk_id = 0
 
-for i in tqdm(range(0, len(messages) - WINDOW_SIZE + 1, STEP), desc="Chunking"):
-    window = messages[i:i + WINDOW_SIZE]
-    chunk_lines = []
-    message_ids = []
+# Thread chunks
+for root_id, thread_msgs in tqdm(threads.items(), desc="Thread chunks"):
+    for i in range(0, len(thread_msgs), MAX_THREAD_LENGTH):
+        sub = thread_msgs[i:i + MAX_THREAD_LENGTH]
+        lines = []
+        ids = []
+        for msg in sub:
+            prefix = "↳ " if msg.get('reply_to_message_id') else ""
+            lines.append(f"{prefix}[{msg.get('from_name', 'Unknown')}, {(msg.get('date') or '')[:16]}] {msg.get('text_plain', '')[:200]}")
+            ids.append(msg['id'])
+        chunks.append({
+            'chunk_id': chunk_id, 'type': 'thread', 'text': "\\n".join(lines),
+            'message_ids': ids, 'anchor_message_id': ids[0],
+            'start_date': sub[0].get('date'), 'end_date': sub[-1].get('date')
+        })
+        chunk_id += 1
 
+# Window chunks for orphans
+orphans.sort(key=lambda x: x.get('date_unixtime', 0))
+STEP = WINDOW_SIZE - OVERLAP
+for i in tqdm(range(0, max(1, len(orphans) - WINDOW_SIZE + 1), STEP), desc="Window chunks"):
+    window = orphans[i:i + WINDOW_SIZE]
+    if not window: continue
+    lines = []
+    ids = []
     for msg in window:
-        name = msg['from_name'] or 'Unknown'
-        text = msg['text_plain'] or ''
-        date = (msg['date'] or '')[:16]
-        chunk_lines.append(f"[{name}, {date}] {text[:200]}")
-        message_ids.append(msg['id'])
-
+        lines.append(f"[{msg.get('from_name', 'Unknown')}, {(msg.get('date') or '')[:16]}] {msg.get('text_plain', '')[:200]}")
+        ids.append(msg['id'])
     chunks.append({
-        'chunk_id': i // STEP,
-        'text': "\\n".join(chunk_lines),
-        'message_ids': message_ids,
-        'anchor_message_id': window[WINDOW_SIZE // 2]['id'],
-        'start_date': window[0]['date'],
-        'end_date': window[-1]['date'],
+        'chunk_id': chunk_id, 'type': 'window', 'text': "\\n".join(lines),
+        'message_ids': ids, 'anchor_message_id': ids[len(ids)//2],
+        'start_date': window[0].get('date'), 'end_date': window[-1].get('date')
     })
+    chunk_id += 1
 
-print(f"✓ Created {len(chunks):,} chunks")
+thread_count = sum(1 for c in chunks if c['type'] == 'thread')
+window_count = sum(1 for c in chunks if c['type'] == 'window')
+print(f"✓ Created {len(chunks):,} chunks ({thread_count:,} threads, {window_count:,} windows)")
 
 # === GENERATE EMBEDDINGS ===
 print("Loading model (intfloat/multilingual-e5-large)...")
@@ -283,6 +356,7 @@ emb_conn = sqlite3.connect('chunk_embeddings.db')
 emb_conn.execute("""
     CREATE TABLE IF NOT EXISTS chunk_embeddings (
         chunk_id INTEGER PRIMARY KEY,
+        chunk_type TEXT,
         text TEXT,
         message_ids TEXT,
         anchor_message_id INTEGER,
@@ -293,12 +367,12 @@ emb_conn.execute("""
 """)
 emb_conn.execute("DELETE FROM chunk_embeddings")
 
-data = [(c['chunk_id'], c['text'], json.dumps(c['message_ids']),
+data = [(c['chunk_id'], c['type'], c['text'], json.dumps(c['message_ids']),
          c['anchor_message_id'], c['start_date'], c['end_date'],
          emb.astype(np.float32).tobytes())
         for c, emb in zip(chunks, embeddings)]
 
-emb_conn.executemany("INSERT INTO chunk_embeddings VALUES (?,?,?,?,?,?,?)", data)
+emb_conn.executemany("INSERT INTO chunk_embeddings VALUES (?,?,?,?,?,?,?,?)", data)
 emb_conn.commit()
 emb_conn.close()
 print("✓ Saved chunk_embeddings.db")

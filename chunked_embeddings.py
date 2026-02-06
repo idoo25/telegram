@@ -2,12 +2,193 @@
 Chunked Embeddings Generator
 Creates embeddings for conversation windows instead of single messages.
 This captures context like "Where do you live?" + "Tel Aviv" in one embedding.
+
+Supports two chunking strategies:
+1. Thread-based: Groups messages by reply chains (best for Q&A)
+2. Time-window: Groups nearby messages (fallback for orphan messages)
 """
 
 import sqlite3
 import numpy as np
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Set
 from datetime import datetime
+from collections import defaultdict
+
+
+def build_thread_map(messages_db: str) -> Dict[int, List[Dict]]:
+    """
+    Build a map of threads from reply chains.
+
+    Returns:
+        Dict mapping root_message_id -> list of messages in thread
+    """
+    conn = sqlite3.connect(messages_db)
+    conn.row_factory = sqlite3.Row
+
+    # Get all messages with their reply info
+    messages = conn.execute("""
+        SELECT id, date, date_unixtime, from_name, text_plain, reply_to_message_id
+        FROM messages
+        WHERE text_plain IS NOT NULL AND LENGTH(text_plain) > 5
+        ORDER BY date_unixtime ASC
+    """).fetchall()
+    conn.close()
+
+    # Build lookup maps
+    msg_by_id = {m['id']: dict(m) for m in messages}
+    children = defaultdict(list)  # parent_id -> [child_ids]
+
+    for msg in messages:
+        reply_to = msg['reply_to_message_id']
+        if reply_to and reply_to in msg_by_id:
+            children[reply_to].append(msg['id'])
+
+    # Find root messages (messages that others reply to, but don't reply to anything)
+    # OR messages that start a chain
+    roots = set()
+    in_thread = set()
+
+    for msg in messages:
+        msg_id = msg['id']
+        reply_to = msg['reply_to_message_id']
+
+        if reply_to and reply_to in msg_by_id:
+            # This message is part of a thread
+            in_thread.add(msg_id)
+
+            # Find the root of this thread
+            current = reply_to
+            while current in msg_by_id:
+                parent_reply = msg_by_id[current].get('reply_to_message_id')
+                if parent_reply and parent_reply in msg_by_id:
+                    current = parent_reply
+                else:
+                    break
+            roots.add(current)
+            in_thread.add(current)
+
+    # Build threads from roots
+    threads = {}
+
+    def collect_thread(root_id: int) -> List[Dict]:
+        """Recursively collect all messages in a thread."""
+        thread = [msg_by_id[root_id]]
+
+        # BFS to collect children
+        queue = list(children[root_id])
+        while queue:
+            child_id = queue.pop(0)
+            if child_id in msg_by_id:
+                thread.append(msg_by_id[child_id])
+                queue.extend(children[child_id])
+
+        # Sort by time
+        thread.sort(key=lambda x: x.get('date_unixtime', 0))
+        return thread
+
+    for root_id in roots:
+        thread = collect_thread(root_id)
+        if len(thread) >= 2:  # Only keep threads with at least 2 messages
+            threads[root_id] = thread
+
+    # Find orphan messages (not in any thread)
+    orphans = [msg_by_id[m['id']] for m in messages if m['id'] not in in_thread]
+
+    print(f"Found {len(threads)} threads with {sum(len(t) for t in threads.values())} messages")
+    print(f"Found {len(orphans)} orphan messages")
+
+    return threads, orphans
+
+
+def create_thread_chunks(messages_db: str, max_thread_length: int = 10) -> List[Dict]:
+    """
+    Create chunks based on reply threads.
+    Long threads are split into sub-chunks.
+
+    Args:
+        messages_db: Path to telegram.db
+        max_thread_length: Max messages per chunk (splits longer threads)
+
+    Returns:
+        List of chunk dicts
+    """
+    threads, orphans = build_thread_map(messages_db)
+
+    chunks = []
+    chunk_id = 0
+
+    # Process threads
+    for root_id, thread_msgs in threads.items():
+        # Split long threads
+        for i in range(0, len(thread_msgs), max_thread_length):
+            sub_thread = thread_msgs[i:i + max_thread_length]
+
+            chunk_lines = []
+            message_ids = []
+
+            for msg in sub_thread:
+                name = msg.get('from_name') or 'Unknown'
+                text = msg.get('text_plain') or ''
+                date = (msg.get('date') or '')[:16]
+
+                # Mark replies
+                reply_to = msg.get('reply_to_message_id')
+                prefix = "↳ " if reply_to else ""
+
+                chunk_lines.append(f"{prefix}[{name}, {date}] {text[:200]}")
+                message_ids.append(msg['id'])
+
+            chunks.append({
+                'chunk_id': chunk_id,
+                'type': 'thread',
+                'text': "\n".join(chunk_lines),
+                'message_ids': message_ids,
+                'anchor_message_id': message_ids[0],  # Root of thread
+                'start_date': sub_thread[0].get('date'),
+                'end_date': sub_thread[-1].get('date'),
+            })
+            chunk_id += 1
+
+    # Process orphans with time-window chunking
+    WINDOW_SIZE = 5
+    OVERLAP = 2
+    STEP = WINDOW_SIZE - OVERLAP
+
+    orphans.sort(key=lambda x: x.get('date_unixtime', 0))
+
+    for i in range(0, max(1, len(orphans) - WINDOW_SIZE + 1), STEP):
+        window = orphans[i:i + WINDOW_SIZE]
+        if not window:
+            continue
+
+        chunk_lines = []
+        message_ids = []
+
+        for msg in window:
+            name = msg.get('from_name') or 'Unknown'
+            text = msg.get('text_plain') or ''
+            date = (msg.get('date') or '')[:16]
+            chunk_lines.append(f"[{name}, {date}] {text[:200]}")
+            message_ids.append(msg['id'])
+
+        chunks.append({
+            'chunk_id': chunk_id,
+            'type': 'window',
+            'text': "\n".join(chunk_lines),
+            'message_ids': message_ids,
+            'anchor_message_id': message_ids[len(message_ids)//2],
+            'start_date': window[0].get('date'),
+            'end_date': window[-1].get('date'),
+        })
+        chunk_id += 1
+
+    print(f"Created {len(chunks)} total chunks")
+    thread_chunks = sum(1 for c in chunks if c['type'] == 'thread')
+    window_chunks = sum(1 for c in chunks if c['type'] == 'window')
+    print(f"  - {thread_chunks} thread chunks")
+    print(f"  - {window_chunks} window chunks")
+
+    return chunks
 
 
 def create_chunks(messages_db: str, window_size: int = 5, overlap: int = 2) -> List[Dict]:
