@@ -253,6 +253,8 @@
     </style>
 </head>
 <body>
+    <button class="mobile-menu-btn" onclick="toggleMobileMenu()">&#9776;</button>
+    <div class="sidebar-overlay" onclick="toggleMobileMenu()"></div>
     <!-- Sidebar -->
     <nav class="sidebar">
         <div class="logo">
@@ -716,6 +718,9 @@
                 options: chartDefaults()
             });
         }
+    </script>
+    <script>
+    function toggleMobileMenu(){var s=document.querySelector('.sidebar'),o=document.querySelector('.sidebar-overlay');s.classList.toggle('open');if(o)o.classList.toggle('active');}
     </script>
 </body>
 </html>

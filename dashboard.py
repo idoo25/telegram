@@ -24,10 +24,71 @@ from typing import Optional
 from collections import defaultdict
 
 # ==========================================
-# AI CONFIGURATION - Add your API key here
+# DATABASE DOWNLOAD FROM HF DATASET
 # ==========================================
-os.environ['AI_PROVIDER'] = 'gemini'
-os.environ['GEMINI_API_KEY'] = 'YOUR_API_KEY_HERE'  # <-- Replace with your Gemini API key
+HF_DATASET_REPO = "rottg/telegram-db"
+DB_FILENAME = "telegram.db"
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH_FULL = os.path.join(APP_DIR, DB_FILENAME)
+
+
+def ensure_db_exists():
+    """Download DB from HF Dataset repo if it doesn't exist locally."""
+    print(f"[DB] Checking for database at: {DB_PATH_FULL}")
+    print(f"[DB] Current working directory: {os.getcwd()}")
+
+    if os.path.exists(DB_PATH_FULL):
+        size_mb = os.path.getsize(DB_PATH_FULL) / (1024 * 1024)
+        print(f"✓ Database found: {DB_PATH_FULL} ({size_mb:.0f} MB)")
+        return True
+
+    print(f"[DB] Database not found. Downloading from HF Dataset {HF_DATASET_REPO}...")
+    try:
+        from huggingface_hub import hf_hub_download
+        import shutil
+
+        # Get token from environment
+        token = os.environ.get("HF_TOKEN")
+        print(f"[DB] HF_TOKEN from env: {'set' if token else 'NOT SET'}")
+
+        if not token:
+            token_file = os.path.join(APP_DIR, ".hf_token")
+            if os.path.exists(token_file):
+                with open(token_file) as f:
+                    token = f.read().strip()
+                print(f"[DB] HF_TOKEN from file: set")
+
+        # Download to cache, then copy to app dir
+        cached_path = hf_hub_download(
+            repo_id=HF_DATASET_REPO,
+            filename=DB_FILENAME,
+            repo_type="dataset",
+            token=token,
+        )
+        print(f"[DB] Downloaded to cache: {cached_path}")
+
+        # Copy to app directory
+        shutil.copy2(cached_path, DB_PATH_FULL)
+        size_mb = os.path.getsize(DB_PATH_FULL) / (1024 * 1024)
+        print(f"✓ Database ready: {DB_PATH_FULL} ({size_mb:.0f} MB)")
+        return True
+    except Exception as e:
+        print(f"✗ Failed to download database: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+# Download DB on module import (for gunicorn)
+ensure_db_exists()
+
+# ==========================================
+# AI CONFIGURATION
+# Set via environment variables (e.g. in .env or hosting platform settings)
+# ==========================================
+if not os.environ.get('AI_PROVIDER'):
+    os.environ['AI_PROVIDER'] = 'gemini'
+# GEMINI_API_KEY should be set as an environment variable, not hardcoded
 
 # Import our algorithms
 from algorithms import (
@@ -1871,10 +1932,9 @@ def api_ai_similar(message_id):
 def api_update_database():
     """
     Update database with new JSON data.
-
-    Accepts JSON file upload or raw JSON in request body.
-    Only new messages (not already in DB) will be added.
+    Disabled in production - updates are done locally via daily_sync.py.
     """
+    return jsonify({'error': 'Database updates are disabled on this server. Run daily_sync.py locally.'}), 403
     try:
         # Check if file was uploaded
         if 'file' in request.files:
@@ -2059,12 +2119,15 @@ def api_export_messages():
 def main():
     import argparse
     parser = argparse.ArgumentParser(description='Telegram Analytics Dashboard')
-    parser.add_argument('--db', default='telegram.db', help='Database path')
-    parser.add_argument('--port', type=int, default=5000, help='Server port')
-    parser.add_argument('--host', default='127.0.0.1', help='Server host')
+    parser.add_argument('--db', default=os.environ.get('DB_PATH', 'telegram.db'), help='Database path')
+    parser.add_argument('--port', type=int, default=int(os.environ.get('PORT', 5000)), help='Server port')
+    parser.add_argument('--host', default=os.environ.get('HOST', '127.0.0.1'), help='Server host')
     parser.add_argument('--debug', action='store_true', help='Debug mode')
 
     args = parser.parse_args()
+
+    # Download DB from HF Dataset if not present
+    ensure_db_exists()
 
     global DB_PATH
     DB_PATH = args.db

@@ -167,6 +167,8 @@
     </style>
 </head>
 <body>
+    <button class="mobile-menu-btn" onclick="toggleMobileMenu()">&#9776;</button>
+    <div class="sidebar-overlay" onclick="toggleMobileMenu()"></div>
     <!-- Sidebar -->
     <nav class="sidebar">
         <div class="logo">
@@ -247,32 +249,13 @@
             </div>
         </section>
 
-        <!-- Upload Section -->
-        <section class="chart-card" style="margin-bottom: var(--spacing-xl);">
+        <!-- Upload Section (disabled - updates done locally) -->
+        <section class="chart-card" style="margin-bottom: var(--spacing-xl); opacity: 0.6;">
             <div class="chart-header">
-                <h3>📤 Update Database with New JSON</h3>
+                <h3>📤 Update Database</h3>
             </div>
-            <div style="padding: var(--spacing-lg);">
-                <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
-                    <div class="upload-zone-icon">📁</div>
-                    <div class="upload-zone-text">גרור קובץ JSON לכאן או לחץ לבחירה</div>
-                    <div class="upload-zone-hint">קבצי Telegram export JSON בלבד</div>
-                    <input type="file" id="file-input" accept=".json" style="display: none;" onchange="handleFileSelect(event)">
-                </div>
-
-                <div class="upload-progress" id="upload-progress">
-                    <div class="progress-bar-container">
-                        <div class="progress-bar-fill" id="progress-fill" style="width: 0%;">0%</div>
-                    </div>
-                    <p style="text-align: center; margin-top: var(--spacing-sm); color: var(--text-muted);" id="progress-text">
-                        מעבד...
-                    </p>
-                </div>
-
-                <div class="upload-result" id="upload-result">
-                    <div class="result-title" id="result-title"></div>
-                    <div class="result-stats" id="result-stats"></div>
-                </div>
+            <div style="padding: var(--spacing-lg); text-align: center; color: var(--text-muted);">
+                <p>עדכוני מסד הנתונים מתבצעים מקומית באמצעות daily_sync.py</p>
             </div>
         </section>
 
@@ -458,6 +441,9 @@ python indexer.py result.json --db telegram.db
             resultTitle.innerHTML = `❌ שגיאה: ${message}`;
             resultStats.innerHTML = '';
         }
+    </script>
+    <script>
+    function toggleMobileMenu(){var s=document.querySelector('.sidebar'),o=document.querySelector('.sidebar-overlay');s.classList.toggle('open');if(o)o.classList.toggle('active');}
     </script>
 </body>
 </html>

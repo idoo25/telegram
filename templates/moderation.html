@@ -8,6 +8,8 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
+    <button class="mobile-menu-btn" onclick="toggleMobileMenu()">&#9776;</button>
+    <div class="sidebar-overlay" onclick="toggleMobileMenu()"></div>
     <!-- Sidebar -->
     <nav class="sidebar">
         <div class="logo">
@@ -454,6 +456,9 @@
             div.textContent = text;
             return div.innerHTML;
         }
+    </script>
+    <script>
+    function toggleMobileMenu(){var s=document.querySelector('.sidebar'),o=document.querySelector('.sidebar-overlay');s.classList.toggle('open');if(o)o.classList.toggle('active');}
     </script>
 </body>
 </html>

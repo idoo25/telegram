@@ -11,5 +11,10 @@ result.json
 telegram.db
 telegram.db-shm
 telegram.db-wal
+embeddings.db
+sync_config.json
+sync.log
+telegram_session.session
+*.session
 .vscode/
 .idea/
