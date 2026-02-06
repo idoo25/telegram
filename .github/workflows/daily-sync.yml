@@ -53,13 +53,17 @@ jobs:
           }
           EOF
 
-      - name: Download current DB from HF Dataset
+      - name: Download DBs from HF Dataset
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           python -c "
           from huggingface_hub import hf_hub_download
           import shutil
+          import os
+
+          # Download main DB
+          print('Downloading telegram.db...')
           path = hf_hub_download(
               repo_id='rottg/telegram-db',
               filename='telegram.db',
@@ -67,14 +71,31 @@ jobs:
               token='$HF_TOKEN'
           )
           shutil.copy(path, 'telegram.db')
-          print(f'Downloaded DB from HF Dataset')
+          size = os.path.getsize('telegram.db') / (1024*1024)
+          print(f'Downloaded telegram.db ({size:.0f} MB)')
+
+          # Download embeddings DB
+          print('Downloading embeddings.db...')
+          try:
+              path = hf_hub_download(
+                  repo_id='rottg/telegram-db',
+                  filename='embeddings.db',
+                  repo_type='dataset',
+                  token='$HF_TOKEN'
+              )
+              shutil.copy(path, 'embeddings.db')
+              size = os.path.getsize('embeddings.db') / (1024*1024)
+              print(f'Downloaded embeddings.db ({size:.0f} MB)')
+          except Exception as e:
+              print(f'ERROR downloading embeddings.db: {e}')
+              print('Will skip embeddings generation')
           "
 
       - name: Run daily sync
         run: |
           python daily_sync.py --hours 36
 
-      - name: Upload updated DB to HF Dataset
+      - name: Upload DBs to HF Dataset
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
@@ -82,14 +103,27 @@ jobs:
           from huggingface_hub import HfApi
           import os
           api = HfApi(token='$HF_TOKEN')
+
+          # Upload main DB
           api.upload_file(
               path_or_fileobj='telegram.db',
               path_in_repo='telegram.db',
               repo_id='rottg/telegram-db',
               repo_type='dataset',
-              commit_message='Daily sync $(date -u +%Y-%m-%d)'
+              commit_message='Daily sync'
           )
-          print('Uploaded DB to HF Dataset')
+          print('Uploaded telegram.db')
+
+          # Upload embeddings DB if exists
+          if os.path.exists('embeddings.db'):
+              api.upload_file(
+                  path_or_fileobj='embeddings.db',
+                  path_in_repo='embeddings.db',
+                  repo_id='rottg/telegram-db',
+                  repo_type='dataset',
+                  commit_message='Daily sync - embeddings'
+              )
+              print('Uploaded embeddings.db')
           "
 
       - name: Restart HF Space
