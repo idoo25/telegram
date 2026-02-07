@@ -299,6 +299,12 @@ def ai_search_page():
     return render_template('ai_search.html')
 
 
+@app.route('/maintenance')
+def maintenance_page():
+    """Maintenance page - password protected."""
+    return render_template('maintenance.html')
+
+
 # ==========================================
 # API ENDPOINTS - OVERVIEW STATS
 # ==========================================
@@ -2038,6 +2044,87 @@ def api_hybrid_status():
             'ready': False,
             'error': str(e)
         })
+
+
+# ==========================================
+# API ENDPOINTS - STYLOMETRY (Duplicate Detection)
+# ==========================================
+
+# Global stylometry state
+_stylometry_status = {'status': 'idle', 'progress': 0, 'message': '', 'results': None}
+
+@app.route('/api/stylometry/analyze', methods=['POST'])
+def api_stylometry_analyze():
+    """Start stylometry analysis to detect duplicate accounts."""
+    import threading
+
+    data = request.get_json() or {}
+    min_messages = data.get('min_messages', 300)
+    days = data.get('days', 365)
+    threshold = data.get('threshold', 0.85)
+
+    global _stylometry_status
+    _stylometry_status = {'status': 'running', 'progress': 0, 'message': 'מתחיל ניתוח...', 'results': None}
+
+    def run_analysis():
+        global _stylometry_status
+        try:
+            from stylometry import get_stylometry_analyzer
+
+            analyzer = get_stylometry_analyzer()
+            analyzer.similarity_threshold = threshold
+
+            def progress_callback(event, *args):
+                global _stylometry_status
+                if event == 'users_found':
+                    _stylometry_status['message'] = f'נמצאו {args[0]} משתמשים לניתוח'
+                    _stylometry_status['progress'] = 5
+                elif event == 'user_processed':
+                    current, total, name = args
+                    pct = 5 + int(70 * current / total)
+                    _stylometry_status['progress'] = pct
+                    _stylometry_status['message'] = f'מעבד {current}/{total}: {name}'
+                elif event == 'comparing':
+                    current = args[0]
+                    total = args[1] if len(args) > 1 else 1
+                    pct = 75 + int(25 * current / max(1, total))
+                    _stylometry_status['progress'] = min(99, pct)
+                    _stylometry_status['message'] = 'משווה דפוסי כתיבה...'
+
+            results = analyzer.analyze_all_users(
+                min_messages=min_messages,
+                days=days,
+                progress_callback=progress_callback
+            )
+
+            _stylometry_status = {
+                'status': 'completed',
+                'progress': 100,
+                'message': 'הניתוח הושלם',
+                'results': results
+            }
+
+        except Exception as e:
+            import traceback
+            _stylometry_status = {
+                'status': 'error',
+                'progress': 0,
+                'message': str(e),
+                'error': traceback.format_exc(),
+                'results': None
+            }
+
+    # Run in background thread
+    thread = threading.Thread(target=run_analysis)
+    thread.start()
+
+    return jsonify({'status': 'started'})
+
+
+@app.route('/api/stylometry/status')
+def api_stylometry_status():
+    """Get stylometry analysis status."""
+    return jsonify(_stylometry_status)
 
 
 def fallback_ai_search(query: str):

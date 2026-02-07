@@ -16,6 +16,7 @@ COPY search.py .
 COPY semantic_search.py .
 COPY hybrid_search.py .
 COPY gemini_client.py .
+COPY stylometry.py .
 COPY schema.sql .
 COPY static/ static/
 COPY templates/ templates/

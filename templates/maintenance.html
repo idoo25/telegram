@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>תחזוקה - Telegram Analytics</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #e4e4e4;
+        }
+
+        .header {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            color: #ff6b6b;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 20px;
+        }
+
+        .nav-links a {
+            color: #a0a0a0;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+        }
+
+        .nav-links a:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        .nav-links a.active {
+            background: rgba(255, 107, 107, 0.2);
+            color: #ff6b6b;
+        }
+
+        /* Password Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-overlay.hidden {
+            display: none;
+        }
+
+        .modal {
+            background: #1e2a3a;
+            padding: 40px;
+            border-radius: 12px;
+            text-align: center;
+            border: 1px solid rgba(255, 107, 107, 0.3);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal h2 {
+            margin-bottom: 20px;
+            color: #ff6b6b;
+        }
+
+        .modal input {
+            padding: 12px 20px;
+            font-size: 1.2rem;
+            border: 2px solid #3a4a5a;
+            border-radius: 8px;
+            background: #0d1520;
+            color: #fff;
+            text-align: center;
+            letter-spacing: 4px;
+            width: 200px;
+        }
+
+        .modal input:focus {
+            outline: none;
+            border-color: #ff6b6b;
+        }
+
+        .modal button {
+            display: block;
+            margin: 20px auto 0;
+            padding: 12px 40px;
+            font-size: 1rem;
+            background: #ff6b6b;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        .modal button:hover {
+            background: #ff5252;
+        }
+
+        .modal .error {
+            color: #ff6b6b;
+            margin-top: 15px;
+            font-size: 0.9rem;
+        }
+
+        /* Main Content */
+        .main-content {
+            padding: 30px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .main-content.locked {
+            filter: blur(10px);
+            pointer-events: none;
+        }
+
+        .section {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .section h2 {
+            color: #ff6b6b;
+            margin-bottom: 15px;
+            font-size: 1.3rem;
+        }
+
+        .section p {
+            color: #a0a0a0;
+            margin-bottom: 15px;
+            line-height: 1.6;
+        }
+
+        /* Analysis Controls */
+        .controls {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .control-group label {
+            font-size: 0.85rem;
+            color: #a0a0a0;
+        }
+
+        .control-group input, .control-group select {
+            padding: 10px 15px;
+            border: 1px solid #3a4a5a;
+            border-radius: 6px;
+            background: #0d1520;
+            color: #fff;
+            font-size: 1rem;
+        }
+
+        .btn-primary {
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #ff6b6b, #ff5252);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 20px;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(255, 107, 107, 0.3);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Progress */
+        .progress-container {
+            margin-top: 20px;
+            display: none;
+        }
+
+        .progress-container.active {
+            display: block;
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: #1a2535;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ff6b6b, #ff5252);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            color: #a0a0a0;
+            font-size: 0.9rem;
+        }
+
+        /* Results */
+        .results-container {
+            display: none;
+        }
+
+        .results-container.active {
+            display: block;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+
+        .stat-card {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .stat-card .value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #ff6b6b;
+        }
+
+        .stat-card .label {
+            color: #a0a0a0;
+            font-size: 0.9rem;
+            margin-top: 5px;
+        }
+
+        /* Pairs List */
+        .pairs-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .pair-card {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 20px;
+            border-right: 4px solid;
+        }
+
+        .pair-card.high {
+            border-color: #ff5252;
+        }
+
+        .pair-card.medium {
+            border-color: #ffa726;
+        }
+
+        .pair-card.low {
+            border-color: #66bb6a;
+        }
+
+        .pair-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .pair-users {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .user-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .user-name {
+            font-weight: bold;
+            color: #fff;
+        }
+
+        .user-stats {
+            font-size: 0.85rem;
+            color: #a0a0a0;
+        }
+
+        .vs-badge {
+            background: #3a4a5a;
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            color: #fff;
+        }
+
+        .similarity-badge {
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+
+        .pair-card.high .similarity-badge {
+            color: #ff5252;
+        }
+
+        .pair-card.medium .similarity-badge {
+            color: #ffa726;
+        }
+
+        .pair-card.low .similarity-badge {
+            color: #66bb6a;
+        }
+
+        .pair-details {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .detail-tag {
+            background: rgba(255, 107, 107, 0.1);
+            color: #ff6b6b;
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 0.85rem;
+        }
+
+        .no-duplicates {
+            text-align: center;
+            padding: 40px;
+            color: #66bb6a;
+        }
+
+        .no-duplicates svg {
+            width: 60px;
+            height: 60px;
+            margin-bottom: 15px;
+        }
+
+        /* Feature comparison table */
+        .comparison-toggle {
+            background: none;
+            border: 1px solid #3a4a5a;
+            color: #a0a0a0;
+            padding: 5px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            margin-top: 10px;
+        }
+
+        .comparison-toggle:hover {
+            border-color: #ff6b6b;
+            color: #ff6b6b;
+        }
+
+        .comparison-table {
+            display: none;
+            margin-top: 15px;
+            width: 100%;
+            font-size: 0.85rem;
+        }
+
+        .comparison-table.active {
+            display: table;
+        }
+
+        .comparison-table th, .comparison-table td {
+            padding: 8px 12px;
+            text-align: right;
+            border-bottom: 1px solid #2a3a4a;
+        }
+
+        .comparison-table th {
+            color: #a0a0a0;
+            font-weight: normal;
+        }
+
+        .comparison-table td {
+            color: #fff;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .nav-links {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .pair-users {
+                flex-direction: column;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Password Modal -->
+    <div class="modal-overlay" id="password-modal">
+        <div class="modal">
+            <h2>אזור מוגן</h2>
+            <p style="color: #a0a0a0; margin-bottom: 20px;">הזן סיסמה כדי להיכנס לאזור התחזוקה</p>
+            <input type="password" id="password-input" placeholder="******" maxlength="10" autofocus>
+            <button onclick="checkPassword()">כניסה</button>
+            <p class="error hidden" id="password-error">סיסמה שגויה</p>
+        </div>
+    </div>
+
+    <header class="header">
+        <h1>תחזוקה</h1>
+        <nav class="nav-links">
+            <a href="/">סטטיסטיקות</a>
+            <a href="/chat">צ'אט</a>
+            <a href="/ai-search">AI Search</a>
+            <a href="/maintenance" class="active">תחזוקה</a>
+        </nav>
+    </header>
+
+    <main class="main-content locked" id="main-content">
+        <!-- Stylometry Analysis Section -->
+        <section class="section">
+            <h2>זיהוי משתמשים כפולים (Stylometry)</h2>
+            <p>
+                המערכת מנתחת את סגנון הכתיבה של כל משתמש כדי לזהות חשבונות שייתכן ושייכים לאותו אדם.
+                הניתוח כולל: אורך הודעות, שימוש באימוג'י, סימני פיסוק, יחס עברית/אנגלית, שעות פעילות ועוד.
+            </p>
+
+            <div class="controls">
+                <div class="control-group">
+                    <label>מינימום הודעות</label>
+                    <input type="number" id="min-messages" value="300" min="50" max="10000">
+                </div>
+                <div class="control-group">
+                    <label>תקופה (ימים)</label>
+                    <input type="number" id="days" value="365" min="30" max="730">
+                </div>
+                <div class="control-group">
+                    <label>סף דמיון (%)</label>
+                    <input type="number" id="threshold" value="85" min="50" max="99">
+                </div>
+            </div>
+
+            <button class="btn-primary" id="analyze-btn" onclick="startAnalysis()">
+                התחל ניתוח
+            </button>
+
+            <!-- Progress -->
+            <div class="progress-container" id="progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+                <p class="progress-text" id="progress-text">מתחיל ניתוח...</p>
+            </div>
+        </section>
+
+        <!-- Results Section -->
+        <section class="section results-container" id="results-container">
+            <h2>תוצאות הניתוח</h2>
+
+            <div class="stats-grid" id="stats-grid">
+                <!-- Filled by JS -->
+            </div>
+
+            <div id="pairs-container">
+                <!-- Filled by JS -->
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const CORRECT_PASSWORD = '8716156';
+        let analysisResults = null;
+
+        // Check if already authenticated (session storage)
+        if (sessionStorage.getItem('maintenance_auth') === 'true') {
+            unlockContent();
+        }
+
+        // Enter key for password
+        document.getElementById('password-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') checkPassword();
+        });
+
+        function checkPassword() {
+            const input = document.getElementById('password-input');
+            const error = document.getElementById('password-error');
+
+            if (input.value === CORRECT_PASSWORD) {
+                sessionStorage.setItem('maintenance_auth', 'true');
+                unlockContent();
+            } else {
+                error.classList.remove('hidden');
+                input.value = '';
+                input.focus();
+            }
+        }
+
+        function unlockContent() {
+            document.getElementById('password-modal').classList.add('hidden');
+            document.getElementById('main-content').classList.remove('locked');
+        }
+
+        async function startAnalysis() {
+            const minMessages = parseInt(document.getElementById('min-messages').value);
+            const days = parseInt(document.getElementById('days').value);
+            const threshold = parseInt(document.getElementById('threshold').value);
+
+            const btn = document.getElementById('analyze-btn');
+            const progress = document.getElementById('progress-container');
+            const progressFill = document.getElementById('progress-fill');
+            const progressText = document.getElementById('progress-text');
+
+            btn.disabled = true;
+            progress.classList.add('active');
+            progressFill.style.width = '0%';
+            progressText.textContent = 'מתחיל ניתוח...';
+
+            try {
+                // Start the analysis
+                const response = await fetch('/api/stylometry/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        min_messages: minMessages,
+                        days: days,
+                        threshold: threshold / 100
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Analysis failed');
+                }
+
+                // Poll for progress
+                let completed = false;
+                while (!completed) {
+                    await new Promise(r => setTimeout(r, 500));
+
+                    const statusRes = await fetch('/api/stylometry/status');
+                    const status = await statusRes.json();
+
+                    if (status.status === 'completed') {
+                        completed = true;
+                        analysisResults = status.results;
+                        progressFill.style.width = '100%';
+                        progressText.textContent = 'הניתוח הושלם!';
+                    } else if (status.status === 'error') {
+                        throw new Error(status.error);
+                    } else if (status.status === 'running') {
+                        const pct = status.progress || 0;
+                        progressFill.style.width = pct + '%';
+                        progressText.textContent = status.message || 'מעבד...';
+                    }
+                }
+
+                // Show results
+                setTimeout(() => {
+                    progress.classList.remove('active');
+                    displayResults(analysisResults);
+                }, 500);
+
+            } catch (error) {
+                progressText.textContent = 'שגיאה: ' + error.message;
+                progressFill.style.width = '0%';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function displayResults(data) {
+            const container = document.getElementById('results-container');
+            const statsGrid = document.getElementById('stats-grid');
+            const pairsContainer = document.getElementById('pairs-container');
+
+            container.classList.add('active');
+
+            // Stats
+            statsGrid.innerHTML = `
+                <div class="stat-card">
+                    <div class="value">${data.total_users_analyzed}</div>
+                    <div class="label">משתמשים נבדקו</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value">${data.potential_duplicates}</div>
+                    <div class="label">חשודים ככפולים</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value">${data.threshold}%</div>
+                    <div class="label">סף דמיון</div>
+                </div>
+            `;
+
+            // Pairs
+            if (data.pairs.length === 0) {
+                pairsContainer.innerHTML = `
+                    <div class="no-duplicates">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                            <polyline points="22 4 12 14.01 9 11.01"/>
+                        </svg>
+                        <h3>לא נמצאו משתמשים כפולים!</h3>
+                        <p>כל המשתמשים שנבדקו נראים ייחודיים</p>
+                    </div>
+                `;
+            } else {
+                let pairsHTML = '<div class="pairs-list">';
+
+                for (const pair of data.pairs) {
+                    const level = pair.similarity >= 95 ? 'high' : (pair.similarity >= 90 ? 'medium' : 'low');
+                    const pairId = `pair-${pair.user1.user_id}-${pair.user2.user_id}`;
+
+                    pairsHTML += `
+                        <div class="pair-card ${level}">
+                            <div class="pair-header">
+                                <div class="pair-users">
+                                    <div class="user-info">
+                                        <span class="user-name">${escapeHtml(pair.user1.user_name)}</span>
+                                        <span class="user-stats">${pair.user1.message_count} הודעות</span>
+                                    </div>
+                                    <span class="vs-badge">VS</span>
+                                    <div class="user-info">
+                                        <span class="user-name">${escapeHtml(pair.user2.user_name)}</span>
+                                        <span class="user-stats">${pair.user2.message_count} הודעות</span>
+                                    </div>
+                                </div>
+                                <div class="similarity-badge">${pair.similarity}%</div>
+                            </div>
+                            <div class="pair-details">
+                                ${pair.details.map(d => `<span class="detail-tag">${d}</span>`).join('')}
+                            </div>
+                            <button class="comparison-toggle" onclick="toggleComparison('${pairId}')">
+                                הצג השוואה מפורטת
+                            </button>
+                            <table class="comparison-table" id="${pairId}">
+                                <tr>
+                                    <th>מדד</th>
+                                    <th>${escapeHtml(pair.user1.user_name)}</th>
+                                    <th>${escapeHtml(pair.user2.user_name)}</th>
+                                </tr>
+                                <tr>
+                                    <td>אורך הודעה ממוצע</td>
+                                    <td>${pair.user1.avg_message_length}</td>
+                                    <td>${pair.user2.avg_message_length}</td>
+                                </tr>
+                                <tr>
+                                    <td>יחס עברית</td>
+                                    <td>${(pair.user1.hebrew_ratio * 100).toFixed(1)}%</td>
+                                    <td>${(pair.user2.hebrew_ratio * 100).toFixed(1)}%</td>
+                                </tr>
+                                <tr>
+                                    <td>יחס אנגלית</td>
+                                    <td>${(pair.user1.english_ratio * 100).toFixed(1)}%</td>
+                                    <td>${(pair.user2.english_ratio * 100).toFixed(1)}%</td>
+                                </tr>
+                                <tr>
+                                    <td>שימוש באימוג'י</td>
+                                    <td>${(pair.user1.emoji_ratio * 100).toFixed(2)}%</td>
+                                    <td>${(pair.user2.emoji_ratio * 100).toFixed(2)}%</td>
+                                </tr>
+                                <tr>
+                                    <td>סימני שאלה (לכל הודעה)</td>
+                                    <td>${pair.user1.question_rate.toFixed(2)}</td>
+                                    <td>${pair.user2.question_rate.toFixed(2)}</td>
+                                </tr>
+                                <tr>
+                                    <td>סימני קריאה (לכל הודעה)</td>
+                                    <td>${pair.user1.exclamation_rate.toFixed(2)}</td>
+                                    <td>${pair.user2.exclamation_rate.toFixed(2)}</td>
+                                </tr>
+                                <tr>
+                                    <td>פעילות בסופ"ש</td>
+                                    <td>${(pair.user1.weekend_ratio * 100).toFixed(1)}%</td>
+                                    <td>${(pair.user2.weekend_ratio * 100).toFixed(1)}%</td>
+                                </tr>
+                            </table>
+                        </div>
+                    `;
+                }
+
+                pairsHTML += '</div>';
+                pairsContainer.innerHTML = pairsHTML;
+            }
+        }
+
+        function toggleComparison(id) {
+            const table = document.getElementById(id);
+            table.classList.toggle('active');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
