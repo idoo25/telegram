@@ -240,6 +240,7 @@
         <header class="header">
             <h1>&#129302; AI Search</h1>
             <div class="header-controls">
+                <span id="cache-status" class="status-badge unavailable">Loading...</span>
                 <span id="gemini-status" class="status-badge unavailable">Checking...</span>
             </div>
         </header>
@@ -297,6 +298,26 @@
     </main>
 
     <script>
+        // Check cache status on load
+        async function checkCacheStatus() {
+            const badge = document.getElementById('cache-status');
+            try {
+                const response = await fetch('/api/hybrid/status');
+                const data = await response.json();
+
+                if (data.ready) {
+                    badge.className = 'status-badge available';
+                    badge.innerHTML = `&#10003; ${data.chunk_count.toLocaleString()} chunks cached`;
+                } else {
+                    badge.className = 'status-badge unavailable';
+                    badge.innerHTML = '&#8987; Loading embeddings...';
+                }
+            } catch (e) {
+                badge.className = 'status-badge unavailable';
+                badge.innerHTML = '&#10007; Cache Error';
+            }
+        }
+
         // Check Gemini status on load
         async function checkGeminiStatus() {
             try {
@@ -441,6 +462,7 @@
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
+            checkCacheStatus();
             checkGeminiStatus();
             document.getElementById('ai-query').focus();
         });

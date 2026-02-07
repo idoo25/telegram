@@ -2011,6 +2011,35 @@ def api_gemini_status():
         })
 
 
+@app.route('/api/hybrid/status')
+def api_hybrid_status():
+    """Check hybrid search cache status."""
+    try:
+        from hybrid_search import get_hybrid_search
+        hs = get_hybrid_search()
+
+        # Check what's loaded
+        chunk_loaded = hs.chunk_embeddings is not None
+        bm25_loaded = hs.bm25 is not None
+        model_loaded = hs.model is not None
+
+        # Count chunks
+        chunk_count = len(hs.chunk_embeddings) if chunk_loaded else 0
+
+        return jsonify({
+            'chunk_embeddings_loaded': chunk_loaded,
+            'bm25_loaded': bm25_loaded,
+            'model_loaded': model_loaded,
+            'chunk_count': chunk_count,
+            'ready': chunk_loaded or bm25_loaded
+        })
+    except Exception as e:
+        return jsonify({
+            'ready': False,
+            'error': str(e)
+        })
+
+
 def fallback_ai_search(query: str):
     """Fallback search when AI is not available."""
     conn = get_db()
