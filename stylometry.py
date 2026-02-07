@@ -535,29 +535,47 @@ class AdvancedStylometryAnalyzer:
         else:
             scores['time_pattern'] = 0.0
 
-        # === Weighted combination ===
-        # Feature Vector and Character Bigrams are the most reliable for identifying
-        # same-person accounts. AI Embedding tends to capture general "Hebrew chat style"
-        # rather than individual fingerprints, so it gets reduced weight.
-        # Time/Word patterns have low discriminative power in practice.
-        weights = {
-            'feature_cosine': 0.40,           # Most reliable - individual fingerprint
-            'embedding_cosine': 0.15 if scores['embedding_cosine'] is not None else 0.0,  # General style only
-            'bigram_overlap': 0.25,           # Very reliable character patterns
-            'trigram_overlap': 0.10,          # Good character patterns
-            'word_bigram_overlap': 0.05,      # Low discriminative power
-            'time_pattern': 0.05,             # Low discriminative power
-        }
+        # === Threshold-based scoring ===
+        # Feature Vector is the most reliable discriminator. Use it as a gate:
+        # - Below 94%: heavy penalty (likely different people)
+        # - 94-96%: moderate score
+        # - Above 96%: bonus (likely same person)
 
-        # Redistribute embedding weight if not available
-        if scores['embedding_cosine'] is None:
-            weights['feature_cosine'] += 0.10
-            weights['bigram_overlap'] += 0.05
+        feature_score = scores['feature_cosine']
+        bigram_score = scores['bigram_overlap']
 
-        overall = 0.0
-        for key, weight in weights.items():
-            if scores.get(key) is not None:
-                overall += weight * scores[key]
+        # Base score from key metrics (feature vector is primary)
+        base_score = (
+            feature_score * 0.50 +
+            bigram_score * 0.30 +
+            scores['trigram_overlap'] * 0.10 +
+            (scores['embedding_cosine'] * 0.10 if scores['embedding_cosine'] is not None else 0)
+        )
+
+        # Apply threshold-based multipliers
+        if feature_score >= 0.96:
+            # Very high feature similarity - likely same person
+            multiplier = 1.15
+        elif feature_score >= 0.94:
+            # High similarity - possible match
+            multiplier = 1.0
+        elif feature_score >= 0.90:
+            # Moderate similarity - penalize
+            multiplier = 0.75
+        else:
+            # Low similarity - heavy penalty
+            multiplier = 0.5
+
+        # Additional penalty if bigrams are low
+        if bigram_score < 0.80:
+            multiplier *= 0.85
+        elif bigram_score >= 0.85:
+            multiplier *= 1.05
+
+        overall = base_score * multiplier
+
+        # Cap at 100%
+        overall = min(overall, 1.0)
 
         return overall, scores
 
