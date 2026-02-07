@@ -76,7 +76,7 @@ LEET_PATTERN = re.compile(r'\b\w*\d+\w*\b')
 class AdvancedStyleFeatures:
     """Enhanced features extracted from a user's messages."""
 
-    def __init__(self, user_id: int, user_name: str):
+    def __init__(self, user_id: str, user_name: str):
         self.user_id = user_id
         self.user_name = user_name
         self.message_count = 0
@@ -198,51 +198,55 @@ class AdvancedStylometryAnalyzer:
                 self._embedding_model = False  # Mark as failed
         return self._embedding_model if self._embedding_model else None
 
-    def get_active_users(self, min_messages: int = 300, days: int = 365) -> List[Tuple[int, str, int]]:
+    def get_active_users(self, min_messages: int = 300, days: int = 365) -> List[Tuple[str, str, int]]:
         """Get users active in the last N days with at least min_messages."""
         cutoff_date = datetime.now() - timedelta(days=days)
-        cutoff_str = cutoff_date.strftime('%Y-%m-%d')
+        cutoff_timestamp = int(cutoff_date.timestamp())
 
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
+        # Use from_id and from_name directly from messages table
         query = """
-            SELECT u.id, u.name, COUNT(m.id) as msg_count
-            FROM users u
-            JOIN messages m ON u.id = m.sender_id
-            WHERE m.date >= ?
-            GROUP BY u.id
+            SELECT from_id, MAX(from_name) as name, COUNT(*) as msg_count
+            FROM messages
+            WHERE date_unixtime >= ?
+              AND from_id IS NOT NULL
+              AND text_plain IS NOT NULL
+              AND text_plain != ''
+            GROUP BY from_id
             HAVING msg_count >= ?
             ORDER BY msg_count DESC
         """
 
-        cursor.execute(query, (cutoff_str, min_messages))
+        cursor.execute(query, (cutoff_timestamp, min_messages))
         users = cursor.fetchall()
         conn.close()
 
         return users
 
-    def get_user_messages(self, user_id: int, days: int = 365) -> List[Tuple[str, str]]:
+    def get_user_messages(self, user_id: str, days: int = 365) -> List[Tuple[str, str]]:
         """Get messages for a user (text, date)."""
         cutoff_date = datetime.now() - timedelta(days=days)
-        cutoff_str = cutoff_date.strftime('%Y-%m-%d')
+        cutoff_timestamp = int(cutoff_date.timestamp())
 
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
         query = """
-            SELECT text, date FROM messages
-            WHERE sender_id = ? AND date >= ? AND text IS NOT NULL AND text != ''
-            ORDER BY date
+            SELECT text_plain, date FROM messages
+            WHERE from_id = ? AND date_unixtime >= ?
+              AND text_plain IS NOT NULL AND text_plain != ''
+            ORDER BY date_unixtime
         """
 
-        cursor.execute(query, (user_id, cutoff_str))
+        cursor.execute(query, (user_id, cutoff_timestamp))
         messages = cursor.fetchall()
         conn.close()
 
         return messages
 
-    def extract_features(self, user_id: int, user_name: str,
+    def extract_features(self, user_id: str, user_name: str,
                         messages: List[Tuple[str, str]]) -> AdvancedStyleFeatures:
         """Extract comprehensive stylometric features from user messages."""
         features = AdvancedStyleFeatures(user_id, user_name)
