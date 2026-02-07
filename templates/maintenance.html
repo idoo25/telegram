@@ -275,6 +275,50 @@
             margin-top: 5px;
         }
 
+        .stat-card .value.available {
+            color: #66bb6a;
+        }
+
+        .stat-card .value.unavailable {
+            color: #ff6b6b;
+        }
+
+        /* Clusters Section */
+        .clusters-section {
+            margin-top: 30px;
+        }
+
+        .clusters-section h3 {
+            color: #ff6b6b;
+            margin-bottom: 15px;
+        }
+
+        .cluster-card {
+            background: rgba(102, 187, 106, 0.1);
+            border: 1px solid rgba(102, 187, 106, 0.3);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .cluster-card h4 {
+            color: #66bb6a;
+            margin-bottom: 10px;
+        }
+
+        .cluster-users {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .cluster-user {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+        }
+
         /* Pairs List */
         .pairs-list {
             display: flex;
@@ -472,10 +516,12 @@
     <main class="main-content locked" id="main-content">
         <!-- Stylometry Analysis Section -->
         <section class="section">
-            <h2>זיהוי משתמשים כפולים (Stylometry)</h2>
+            <h2>זיהוי משתמשים כפולים (Advanced Stylometry + AI)</h2>
             <p>
-                המערכת מנתחת את סגנון הכתיבה של כל משתמש כדי לזהות חשבונות שייתכן ושייכים לאותו אדם.
-                הניתוח כולל: אורך הודעות, שימוש באימוג'י, סימני פיסוק, יחס עברית/אנגלית, שעות פעילות ועוד.
+                מערכת מתקדמת לזיהוי חשבונות כפולים המשלבת:
+                <strong>AI Embeddings</strong> (sentence-transformers),
+                <strong>DBSCAN Clustering</strong> (scikit-learn),
+                וניתוח לשוני עברי מתקדם (פורמליות, סלנג, ראשי תיבות, דפוסי זמן).
             </p>
 
             <div class="controls">
@@ -628,6 +674,10 @@
             container.classList.add('active');
 
             // Stats
+            const clusterCount = data.clusters ? data.clusters.length : 0;
+            const aiUsed = data.embedding_model_used ? '&#10003;' : '&#10007;';
+            const aiClass = data.embedding_model_used ? 'available' : 'unavailable';
+
             statsGrid.innerHTML = `
                 <div class="stat-card">
                     <div class="value">${data.total_users_analyzed}</div>
@@ -635,11 +685,19 @@
                 </div>
                 <div class="stat-card">
                     <div class="value">${data.potential_duplicates}</div>
-                    <div class="label">חשודים ככפולים</div>
+                    <div class="label">זוגות חשודים</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value">${clusterCount}</div>
+                    <div class="label">קבוצות DBSCAN</div>
                 </div>
                 <div class="stat-card">
                     <div class="value">${data.threshold}%</div>
                     <div class="label">סף דמיון</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value ${aiClass}">${aiUsed}</div>
+                    <div class="label">AI Embeddings</div>
                 </div>
             `;
 
@@ -701,36 +759,93 @@
                                     <td>${(pair.user2.hebrew_ratio * 100).toFixed(1)}%</td>
                                 </tr>
                                 <tr>
-                                    <td>יחס אנגלית</td>
-                                    <td>${(pair.user1.english_ratio * 100).toFixed(1)}%</td>
-                                    <td>${(pair.user2.english_ratio * 100).toFixed(1)}%</td>
-                                </tr>
-                                <tr>
                                     <td>שימוש באימוג'י</td>
                                     <td>${(pair.user1.emoji_ratio * 100).toFixed(2)}%</td>
                                     <td>${(pair.user2.emoji_ratio * 100).toFixed(2)}%</td>
                                 </tr>
                                 <tr>
-                                    <td>סימני שאלה (לכל הודעה)</td>
-                                    <td>${pair.user1.question_rate.toFixed(2)}</td>
-                                    <td>${pair.user2.question_rate.toFixed(2)}</td>
+                                    <td>רמת פורמליות</td>
+                                    <td>${pair.user1.formality_score > 0 ? 'פורמלי' : (pair.user1.formality_score < 0 ? 'לא פורמלי' : 'נייטרלי')}</td>
+                                    <td>${pair.user2.formality_score > 0 ? 'פורמלי' : (pair.user2.formality_score < 0 ? 'לא פורמלי' : 'נייטרלי')}</td>
                                 </tr>
                                 <tr>
-                                    <td>סימני קריאה (לכל הודעה)</td>
-                                    <td>${pair.user1.exclamation_rate.toFixed(2)}</td>
-                                    <td>${pair.user2.exclamation_rate.toFixed(2)}</td>
+                                    <td>שימוש בסלנג</td>
+                                    <td>${(pair.user1.slang_rate * 100).toFixed(1)}%</td>
+                                    <td>${(pair.user2.slang_rate * 100).toFixed(1)}%</td>
+                                </tr>
+                                <tr>
+                                    <td>תווים חוזרים (חחחח)</td>
+                                    <td>${(pair.user1.repeated_chars_rate * 100).toFixed(1)}%</td>
+                                    <td>${(pair.user2.repeated_chars_rate * 100).toFixed(1)}%</td>
                                 </tr>
                                 <tr>
                                     <td>פעילות בסופ"ש</td>
                                     <td>${(pair.user1.weekend_ratio * 100).toFixed(1)}%</td>
                                     <td>${(pair.user2.weekend_ratio * 100).toFixed(1)}%</td>
                                 </tr>
+                                <tr>
+                                    <td>פעילות לילית (00-06)</td>
+                                    <td>${(pair.user1.night_owl_ratio * 100).toFixed(1)}%</td>
+                                    <td>${(pair.user2.night_owl_ratio * 100).toFixed(1)}%</td>
+                                </tr>
+                                <tr>
+                                    <td>עושר אוצר מילים</td>
+                                    <td>${(pair.user1.unique_word_ratio * 100).toFixed(1)}%</td>
+                                    <td>${(pair.user2.unique_word_ratio * 100).toFixed(1)}%</td>
+                                </tr>
+                                ${pair.scores ? `
+                                <tr style="background: rgba(255,107,107,0.1);">
+                                    <td colspan="3" style="text-align: center; color: #ff6b6b; font-weight: bold;">ציוני דמיון לפי רכיב</td>
+                                </tr>
+                                <tr>
+                                    <td>Feature Vector</td>
+                                    <td colspan="2" style="text-align: center;">${pair.scores.feature_cosine || 0}%</td>
+                                </tr>
+                                <tr>
+                                    <td>AI Embedding</td>
+                                    <td colspan="2" style="text-align: center;">${pair.scores.embedding_cosine !== null ? pair.scores.embedding_cosine + '%' : 'N/A'}</td>
+                                </tr>
+                                <tr>
+                                    <td>Character Bigrams</td>
+                                    <td colspan="2" style="text-align: center;">${pair.scores.bigram_overlap || 0}%</td>
+                                </tr>
+                                <tr>
+                                    <td>Word Patterns</td>
+                                    <td colspan="2" style="text-align: center;">${pair.scores.word_bigram_overlap || 0}%</td>
+                                </tr>
+                                <tr>
+                                    <td>Time Pattern</td>
+                                    <td colspan="2" style="text-align: center;">${pair.scores.time_pattern || 0}%</td>
+                                </tr>
+                                ` : ''}
                             </table>
                         </div>
                     `;
                 }
 
                 pairsHTML += '</div>';
+
+                // Add clusters section if available
+                if (data.clusters && data.clusters.length > 0) {
+                    pairsHTML += `
+                        <div class="clusters-section">
+                            <h3>קבוצות משתמשים דומים (DBSCAN Clustering)</h3>
+                    `;
+                    data.clusters.forEach((cluster, idx) => {
+                        pairsHTML += `
+                            <div class="cluster-card">
+                                <h4>קבוצה ${idx + 1} (${cluster.size} משתמשים)</h4>
+                                <div class="cluster-users">
+                                    ${cluster.users.map(u => `
+                                        <span class="cluster-user">${escapeHtml(u.user_name)} (${u.message_count})</span>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `;
+                    });
+                    pairsHTML += '</div>';
+                }
+
                 pairsContainer.innerHTML = pairsHTML;
             }
         }

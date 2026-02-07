@@ -1,17 +1,28 @@
 """
-Stylometry Analysis Module for Hebrew Text
+Advanced Stylometry Analysis Module for Hebrew Text
 Detects potential duplicate accounts based on writing style patterns.
+
+Uses:
+- sentence-transformers for Hebrew embeddings (writing style fingerprint)
+- scikit-learn for DBSCAN clustering + TF-IDF on function words
+- Hebrew-specific linguistic features (gender, formality, slang)
 """
 
 import re
 import sqlite3
 import math
+import pickle
+import os
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional
-import json
+from typing import Dict, List, Tuple, Optional, Set
+import numpy as np
 
-# Hebrew character range
+# ==========================================
+# HEBREW LINGUISTIC PATTERNS
+# ==========================================
+
+# Hebrew character ranges
 HEBREW_PATTERN = re.compile(r'[\u0590-\u05FF]')
 ENGLISH_PATTERN = re.compile(r'[a-zA-Z]')
 EMOJI_PATTERN = re.compile(
@@ -26,55 +37,108 @@ EMOJI_PATTERN = re.compile(
     flags=re.UNICODE
 )
 
-# Common Hebrew slang and expressions
-HEBREW_SLANG = ['אחלה', 'סבבה', 'יאללה', 'וואלה', 'באסה', 'חבל', 'מגניב', 'אשכרה', 'חחחח', 'חחח', 'הההה', 'ממממ']
-HEBREW_ACRONYMS = ['בעזהש', 'אכא', 'לול', 'בטח', 'נלענד', 'תנצבה', 'זאת']
+# Hebrew function words (high frequency, style indicators)
+HEBREW_FUNCTION_WORDS = [
+    'של', 'את', 'על', 'עם', 'אל', 'מן', 'בין', 'לפני', 'אחרי', 'תחת',
+    'אני', 'אתה', 'את', 'הוא', 'היא', 'אנחנו', 'אתם', 'אתן', 'הם', 'הן',
+    'זה', 'זאת', 'זו', 'אלה', 'אלו',
+    'כי', 'אם', 'או', 'גם', 'רק', 'אבל', 'אלא', 'למרות', 'בגלל', 'כדי',
+    'מה', 'מי', 'איפה', 'מתי', 'למה', 'איך', 'כמה',
+    'כל', 'הרבה', 'קצת', 'מאוד', 'יותר', 'פחות', 'כמו',
+    'לא', 'כן', 'אין', 'יש', 'היה', 'להיות', 'עוד', 'כבר',
+]
+
+# Formal vs informal markers
+FORMAL_MARKERS = ['אנוכי', 'הנני', 'עליכם', 'בבקשה', 'תודה רבה', 'בכבוד רב', 'לכבוד']
+INFORMAL_MARKERS = ['אחי', 'גבר', 'אחלה', 'סבבה', 'יאללה', 'וואלה', 'באסה', 'חחחח', 'חחח', 'לול', 'wtf', 'omg']
+
+# Hebrew slang and expressions
+HEBREW_SLANG = [
+    'אחלה', 'סבבה', 'יאללה', 'וואלה', 'באסה', 'חבל', 'מגניב', 'אשכרה',
+    'חחחח', 'חחח', 'הההה', 'ממממ', 'אההה', 'נו', 'טוב', 'בסדר',
+    'פיצוץ', 'משהו', 'כאילו', 'סתם', 'ממש', 'פשוט', 'נורא', 'מלא',
+]
+
+# Hebrew acronyms
+HEBREW_ACRONYMS = ['בעזהש', 'אכא', 'נלענד', 'תנצבה', 'זצל', 'בס"ד', 'בע"ה', 'אי"ה', 'בל"נ']
+
+# Gender markers in verbs (past tense patterns)
+MALE_VERB_ENDINGS = ['תי', 'ת', 'נו', 'תם']  # הלכתי, הלכת, הלכנו
+FEMALE_VERB_ENDINGS = ['תי', 'ת', 'נו', 'תן']  # הלכתי, הלכת (female), הלכנו
+
+# Repeated character pattern (emotional expression)
+REPEATED_CHARS_PATTERN = re.compile(r'(.)\1{2,}')
+
+# Word with numbers pattern (l33t speak)
+LEET_PATTERN = re.compile(r'\b\w*\d+\w*\b')
 
 
-class StyleFeatures:
-    """Features extracted from a user's messages."""
+class AdvancedStyleFeatures:
+    """Enhanced features extracted from a user's messages."""
 
     def __init__(self, user_id: int, user_name: str):
         self.user_id = user_id
         self.user_name = user_name
         self.message_count = 0
 
-        # Length features
+        # === Basic Statistics ===
         self.avg_message_length = 0.0
-        self.avg_word_length = 0.0
         self.std_message_length = 0.0
+        self.avg_word_length = 0.0
+        self.avg_words_per_message = 0.0
 
-        # Character ratios
+        # === Character Ratios ===
         self.hebrew_ratio = 0.0
         self.english_ratio = 0.0
         self.digit_ratio = 0.0
         self.emoji_ratio = 0.0
+        self.punctuation_ratio = 0.0
 
-        # Punctuation patterns
+        # === Punctuation Patterns ===
         self.comma_rate = 0.0
         self.period_rate = 0.0
         self.question_rate = 0.0
         self.exclamation_rate = 0.0
-        self.ellipsis_rate = 0.0  # ...
+        self.ellipsis_rate = 0.0
+        self.quote_rate = 0.0
 
-        # Special patterns
-        self.caps_ratio = 0.0
-        self.repeated_chars_rate = 0.0  # כןןןןן
+        # === Hebrew-Specific Features ===
+        self.formality_score = 0.0  # -1 (informal) to +1 (formal)
         self.slang_rate = 0.0
+        self.acronym_rate = 0.0
+        self.repeated_chars_rate = 0.0
+        self.leet_speak_rate = 0.0
 
-        # Time patterns (24 hours distribution)
-        self.hour_distribution = [0.0] * 24
-        self.weekend_ratio = 0.0
-
-        # Word patterns
+        # === Linguistic Patterns ===
+        self.function_word_freq: Dict[str, float] = {}
         self.unique_word_ratio = 0.0
-        self.short_message_ratio = 0.0  # < 5 words
+        self.hapax_ratio = 0.0  # Words used only once
+        self.short_message_ratio = 0.0
+        self.long_message_ratio = 0.0
 
-        # Top character bigrams (normalized)
+        # === Time Patterns ===
+        self.hour_distribution = np.zeros(24)
+        self.weekday_distribution = np.zeros(7)
+        self.weekend_ratio = 0.0
+        self.night_owl_ratio = 0.0  # Messages between 00:00-06:00
+
+        # === Response Patterns ===
+        self.reply_rate = 0.0
+        self.avg_response_words = 0.0
+
+        # === N-gram Features ===
         self.char_bigrams: Dict[str, float] = {}
+        self.char_trigrams: Dict[str, float] = {}
+        self.word_bigrams: Dict[str, float] = {}
 
-        # Feature vector for similarity calculation
-        self.feature_vector: List[float] = []
+        # === Embedding (from sentence-transformers) ===
+        self.style_embedding: Optional[np.ndarray] = None
+
+        # === TF-IDF Vector ===
+        self.tfidf_vector: Optional[np.ndarray] = None
+
+        # === Combined Feature Vector ===
+        self.feature_vector: Optional[np.ndarray] = None
 
     def to_dict(self) -> dict:
         return {
@@ -85,23 +149,54 @@ class StyleFeatures:
             'avg_word_length': round(self.avg_word_length, 2),
             'hebrew_ratio': round(self.hebrew_ratio, 3),
             'english_ratio': round(self.english_ratio, 3),
-            'emoji_ratio': round(self.emoji_ratio, 3),
+            'emoji_ratio': round(self.emoji_ratio, 4),
+            'formality_score': round(self.formality_score, 2),
+            'slang_rate': round(self.slang_rate, 3),
             'question_rate': round(self.question_rate, 3),
             'exclamation_rate': round(self.exclamation_rate, 3),
-            'ellipsis_rate': round(self.ellipsis_rate, 3),
             'repeated_chars_rate': round(self.repeated_chars_rate, 3),
             'weekend_ratio': round(self.weekend_ratio, 3),
+            'night_owl_ratio': round(self.night_owl_ratio, 3),
             'unique_word_ratio': round(self.unique_word_ratio, 3),
         }
 
 
-class StylometryAnalyzer:
-    """Analyzes writing styles to detect potential duplicate accounts."""
+class AdvancedStylometryAnalyzer:
+    """
+    ML-powered stylometry analyzer using:
+    - sentence-transformers for Hebrew writing style embeddings
+    - scikit-learn for TF-IDF and DBSCAN clustering
+    - Hebrew linguistic feature extraction
+    """
 
     def __init__(self, db_path: str = 'telegram_data.db'):
         self.db_path = db_path
-        self.user_features: Dict[int, StyleFeatures] = {}
-        self.similarity_threshold = 0.85  # Adjustable threshold
+        self.user_features: Dict[int, AdvancedStyleFeatures] = {}
+        self.similarity_threshold = 0.85
+
+        # ML components (lazy loaded)
+        self._embedding_model = None
+        self._tfidf_vectorizer = None
+        self._scaler = None
+
+        # Cache directory
+        self.cache_dir = os.path.dirname(os.path.abspath(__file__))
+
+    @property
+    def embedding_model(self):
+        """Lazy load sentence-transformers model."""
+        if self._embedding_model is None:
+            try:
+                from sentence_transformers import SentenceTransformer
+                # Use multilingual model that supports Hebrew well
+                # Alternative: 'imvladikon/sentence-transformers-alephbert' for pure Hebrew
+                print("Loading Hebrew embedding model...")
+                self._embedding_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+                print("Embedding model loaded.")
+            except Exception as e:
+                print(f"Could not load embedding model: {e}")
+                self._embedding_model = False  # Mark as failed
+        return self._embedding_model if self._embedding_model else None
 
     def get_active_users(self, min_messages: int = 300, days: int = 365) -> List[Tuple[int, str, int]]:
         """Get users active in the last N days with at least min_messages."""
@@ -147,225 +242,333 @@ class StylometryAnalyzer:
 
         return messages
 
-    def extract_features(self, user_id: int, user_name: str, messages: List[Tuple[str, str]]) -> StyleFeatures:
-        """Extract stylometric features from user messages."""
-        features = StyleFeatures(user_id, user_name)
+    def extract_features(self, user_id: int, user_name: str,
+                        messages: List[Tuple[str, str]]) -> AdvancedStyleFeatures:
+        """Extract comprehensive stylometric features from user messages."""
+        features = AdvancedStyleFeatures(user_id, user_name)
         features.message_count = len(messages)
 
         if not messages:
             return features
 
-        # Collect statistics
-        message_lengths = []
-        word_lengths = []
+        # Collect all text for analysis
+        all_texts = [msg[0] for msg in messages if msg[0]]
+        all_text_combined = ' '.join(all_texts)
+
+        # === Basic Statistics ===
+        message_lengths = [len(text) for text in all_texts]
+        features.avg_message_length = np.mean(message_lengths)
+        features.std_message_length = np.std(message_lengths)
+
         all_words = []
-        unique_words = set()
-        short_messages = 0
+        word_counts_per_msg = []
+        for text in all_texts:
+            words = text.split()
+            all_words.extend(words)
+            word_counts_per_msg.append(len(words))
 
-        hebrew_chars = 0
-        english_chars = 0
-        digit_chars = 0
-        total_chars = 0
-        caps_chars = 0
+        if all_words:
+            word_lengths = [len(w) for w in all_words]
+            features.avg_word_length = np.mean(word_lengths)
+            features.avg_words_per_message = np.mean(word_counts_per_msg)
 
-        commas = 0
-        periods = 0
-        questions = 0
-        exclamations = 0
-        ellipsis = 0
+        # === Character Ratios ===
+        total_chars = len(all_text_combined)
+        if total_chars > 0:
+            hebrew_chars = len(HEBREW_PATTERN.findall(all_text_combined))
+            english_chars = len(ENGLISH_PATTERN.findall(all_text_combined))
+            digit_chars = sum(1 for c in all_text_combined if c.isdigit())
+            punct_chars = sum(1 for c in all_text_combined if c in '.,!?;:()[]{}')
+            emoji_count = len(EMOJI_PATTERN.findall(all_text_combined))
 
-        repeated_char_msgs = 0
-        slang_count = 0
-        emoji_count = 0
+            features.hebrew_ratio = hebrew_chars / total_chars
+            features.english_ratio = english_chars / total_chars
+            features.digit_ratio = digit_chars / total_chars
+            features.punctuation_ratio = punct_chars / total_chars
+            features.emoji_ratio = emoji_count / total_chars
 
-        hour_counts = [0] * 24
+        # === Punctuation Patterns ===
+        n_msgs = len(messages)
+        features.comma_rate = all_text_combined.count(',') / n_msgs
+        features.period_rate = all_text_combined.count('.') / n_msgs
+        features.question_rate = all_text_combined.count('?') / n_msgs
+        features.exclamation_rate = all_text_combined.count('!') / n_msgs
+        features.ellipsis_rate = all_text_combined.count('...') / n_msgs
+        features.quote_rate = (all_text_combined.count('"') + all_text_combined.count("'")) / n_msgs
+
+        # === Hebrew-Specific Features ===
+        text_lower = all_text_combined.lower()
+
+        # Formality score
+        formal_count = sum(1 for marker in FORMAL_MARKERS if marker in all_text_combined)
+        informal_count = sum(1 for marker in INFORMAL_MARKERS if marker in text_lower)
+        total_markers = formal_count + informal_count
+        if total_markers > 0:
+            features.formality_score = (formal_count - informal_count) / total_markers
+
+        # Slang rate
+        slang_count = sum(1 for text in all_texts for slang in HEBREW_SLANG if slang in text)
+        features.slang_rate = slang_count / n_msgs
+
+        # Acronym rate
+        acronym_count = sum(1 for text in all_texts for acr in HEBREW_ACRONYMS if acr in text)
+        features.acronym_rate = acronym_count / n_msgs
+
+        # Repeated characters (emotional expression like חחחח)
+        repeated_msgs = sum(1 for text in all_texts if REPEATED_CHARS_PATTERN.search(text))
+        features.repeated_chars_rate = repeated_msgs / n_msgs
+
+        # Leet speak rate
+        leet_count = sum(len(LEET_PATTERN.findall(text)) for text in all_texts)
+        features.leet_speak_rate = leet_count / n_msgs
+
+        # === Linguistic Patterns ===
+        # Function word frequency
+        word_counter = Counter(w.lower() for w in all_words)
+        total_words = len(all_words)
+        for fw in HEBREW_FUNCTION_WORDS:
+            features.function_word_freq[fw] = word_counter.get(fw, 0) / max(1, total_words)
+
+        # Vocabulary richness
+        unique_words = set(w.lower() for w in all_words)
+        features.unique_word_ratio = len(unique_words) / max(1, total_words)
+
+        # Hapax legomena (words appearing only once)
+        hapax_count = sum(1 for w, c in word_counter.items() if c == 1)
+        features.hapax_ratio = hapax_count / max(1, len(unique_words))
+
+        # Message length categories
+        features.short_message_ratio = sum(1 for wc in word_counts_per_msg if wc < 5) / n_msgs
+        features.long_message_ratio = sum(1 for wc in word_counts_per_msg if wc > 30) / n_msgs
+
+        # === Time Patterns ===
+        hour_counts = np.zeros(24)
+        weekday_counts = np.zeros(7)
+        night_msgs = 0
         weekend_msgs = 0
 
-        char_bigram_counter = Counter()
-
         for text, date_str in messages:
-            if not text:
-                continue
-
-            # Message length
-            msg_len = len(text)
-            message_lengths.append(msg_len)
-            total_chars += msg_len
-
-            # Word analysis
-            words = text.split()
-            if len(words) < 5:
-                short_messages += 1
-            for word in words:
-                word_lengths.append(len(word))
-                all_words.append(word.lower())
-                unique_words.add(word.lower())
-
-            # Character analysis
-            hebrew_chars += len(HEBREW_PATTERN.findall(text))
-            english_chars += len(ENGLISH_PATTERN.findall(text))
-            digit_chars += sum(1 for c in text if c.isdigit())
-            caps_chars += sum(1 for c in text if c.isupper())
-
-            # Emoji analysis
-            emojis = EMOJI_PATTERN.findall(text)
-            emoji_count += len(emojis)
-
-            # Punctuation
-            commas += text.count(',')
-            periods += text.count('.')
-            questions += text.count('?')
-            exclamations += text.count('!')
-            ellipsis += text.count('...')
-
-            # Repeated characters pattern (like כןןןןן or אההההה)
-            if re.search(r'(.)\1{3,}', text):
-                repeated_char_msgs += 1
-
-            # Slang detection
-            text_lower = text.lower()
-            for slang in HEBREW_SLANG:
-                if slang in text:
-                    slang_count += 1
-                    break
-
-            # Time analysis
             try:
                 if 'T' in date_str:
                     dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
                 else:
                     dt = datetime.strptime(date_str[:19], '%Y-%m-%d %H:%M:%S')
+
                 hour_counts[dt.hour] += 1
+                weekday_counts[dt.weekday()] += 1
+
+                if 0 <= dt.hour < 6:
+                    night_msgs += 1
                 if dt.weekday() >= 5:  # Saturday=5, Sunday=6
                     weekend_msgs += 1
             except:
                 pass
 
-            # Character bigrams
+        # Normalize
+        if hour_counts.sum() > 0:
+            features.hour_distribution = hour_counts / hour_counts.sum()
+        if weekday_counts.sum() > 0:
+            features.weekday_distribution = weekday_counts / weekday_counts.sum()
+
+        features.weekend_ratio = weekend_msgs / n_msgs
+        features.night_owl_ratio = night_msgs / n_msgs
+
+        # === N-gram Features ===
+        # Character bigrams
+        char_bigram_counter = Counter()
+        for text in all_texts:
             clean_text = re.sub(r'\s+', ' ', text.lower())
             for i in range(len(clean_text) - 1):
-                bigram = clean_text[i:i+2]
-                if bigram.strip():
-                    char_bigram_counter[bigram] += 1
+                bg = clean_text[i:i+2]
+                if bg.strip():
+                    char_bigram_counter[bg] += 1
 
-        n_msgs = len(messages)
-
-        # Calculate averages
-        if message_lengths:
-            features.avg_message_length = sum(message_lengths) / len(message_lengths)
-            variance = sum((x - features.avg_message_length) ** 2 for x in message_lengths) / len(message_lengths)
-            features.std_message_length = math.sqrt(variance)
-
-        if word_lengths:
-            features.avg_word_length = sum(word_lengths) / len(word_lengths)
-
-        # Character ratios
-        if total_chars > 0:
-            features.hebrew_ratio = hebrew_chars / total_chars
-            features.english_ratio = english_chars / total_chars
-            features.digit_ratio = digit_chars / total_chars
-            features.emoji_ratio = emoji_count / total_chars
-            features.caps_ratio = caps_chars / max(1, english_chars)
-
-        # Punctuation rates (per message)
-        features.comma_rate = commas / n_msgs
-        features.period_rate = periods / n_msgs
-        features.question_rate = questions / n_msgs
-        features.exclamation_rate = exclamations / n_msgs
-        features.ellipsis_rate = ellipsis / n_msgs
-
-        # Special patterns
-        features.repeated_chars_rate = repeated_char_msgs / n_msgs
-        features.slang_rate = slang_count / n_msgs
-
-        # Time patterns
-        total_hour_msgs = sum(hour_counts)
-        if total_hour_msgs > 0:
-            features.hour_distribution = [h / total_hour_msgs for h in hour_counts]
-            features.weekend_ratio = weekend_msgs / n_msgs
-
-        # Word patterns
-        if all_words:
-            features.unique_word_ratio = len(unique_words) / len(all_words)
-        features.short_message_ratio = short_messages / n_msgs
-
-        # Top character bigrams (normalized)
         total_bigrams = sum(char_bigram_counter.values())
         if total_bigrams > 0:
-            top_bigrams = char_bigram_counter.most_common(50)
-            features.char_bigrams = {bg: count / total_bigrams for bg, count in top_bigrams}
+            for bg, count in char_bigram_counter.most_common(100):
+                features.char_bigrams[bg] = count / total_bigrams
 
-        # Build feature vector for similarity calculation
+        # Character trigrams
+        char_trigram_counter = Counter()
+        for text in all_texts:
+            clean_text = re.sub(r'\s+', ' ', text.lower())
+            for i in range(len(clean_text) - 2):
+                tg = clean_text[i:i+3]
+                if tg.strip():
+                    char_trigram_counter[tg] += 1
+
+        total_trigrams = sum(char_trigram_counter.values())
+        if total_trigrams > 0:
+            for tg, count in char_trigram_counter.most_common(100):
+                features.char_trigrams[tg] = count / total_trigrams
+
+        # Word bigrams
+        word_bigram_counter = Counter()
+        for text in all_texts:
+            words = text.lower().split()
+            for i in range(len(words) - 1):
+                wb = f"{words[i]} {words[i+1]}"
+                word_bigram_counter[wb] += 1
+
+        total_word_bigrams = sum(word_bigram_counter.values())
+        if total_word_bigrams > 0:
+            for wb, count in word_bigram_counter.most_common(50):
+                features.word_bigrams[wb] = count / total_word_bigrams
+
+        # === Generate Style Embedding ===
+        if self.embedding_model:
+            try:
+                # Sample messages for embedding (limit for performance)
+                sample_texts = all_texts[:100] if len(all_texts) > 100 else all_texts
+                # Combine into a style sample
+                style_sample = ' '.join(sample_texts)[:5000]  # Limit length
+                features.style_embedding = self.embedding_model.encode(style_sample, show_progress_bar=False)
+            except Exception as e:
+                print(f"Embedding error for user {user_id}: {e}")
+
+        # === Build Numeric Feature Vector ===
         features.feature_vector = self._build_feature_vector(features)
 
         return features
 
-    def _build_feature_vector(self, f: StyleFeatures) -> List[float]:
+    def _build_feature_vector(self, f: AdvancedStyleFeatures) -> np.ndarray:
         """Build normalized feature vector for similarity comparison."""
         vector = [
-            f.avg_message_length / 100,  # Normalize to ~1
+            # Basic stats (normalized)
+            f.avg_message_length / 200,
+            f.std_message_length / 100,
             f.avg_word_length / 10,
+            f.avg_words_per_message / 20,
+
+            # Character ratios
             f.hebrew_ratio,
             f.english_ratio,
-            f.emoji_ratio * 10,  # Scale up small values
+            f.digit_ratio * 10,
+            f.emoji_ratio * 100,
+            f.punctuation_ratio * 10,
+
+            # Punctuation patterns
+            f.comma_rate / 2,
+            f.period_rate / 2,
             f.question_rate,
             f.exclamation_rate,
             f.ellipsis_rate * 5,
-            f.repeated_chars_rate * 10,
-            f.weekend_ratio,
+            f.quote_rate,
+
+            # Hebrew-specific
+            f.formality_score,
+            f.slang_rate * 5,
+            f.acronym_rate * 10,
+            f.repeated_chars_rate * 5,
+            f.leet_speak_rate * 10,
+
+            # Linguistic
             f.unique_word_ratio,
+            f.hapax_ratio,
             f.short_message_ratio,
-            f.caps_ratio,
-            f.slang_rate,
-            f.comma_rate,
-            f.period_rate,
+            f.long_message_ratio,
+
+            # Time patterns
+            f.weekend_ratio,
+            f.night_owl_ratio * 5,
         ]
 
         # Add hour distribution (24 values)
-        vector.extend(f.hour_distribution)
+        vector.extend(f.hour_distribution.tolist())
 
-        return vector
+        # Add weekday distribution (7 values)
+        vector.extend(f.weekday_distribution.tolist())
 
-    def calculate_similarity(self, f1: StyleFeatures, f2: StyleFeatures) -> float:
-        """Calculate cosine similarity between two feature vectors."""
-        v1 = f1.feature_vector
-        v2 = f2.feature_vector
+        # Add top function word frequencies (20 values)
+        for fw in HEBREW_FUNCTION_WORDS[:20]:
+            vector.append(f.function_word_freq.get(fw, 0) * 100)
 
-        if not v1 or not v2 or len(v1) != len(v2):
+        return np.array(vector)
+
+    def calculate_similarity(self, f1: AdvancedStyleFeatures, f2: AdvancedStyleFeatures) -> Tuple[float, Dict]:
+        """
+        Calculate comprehensive similarity between two users.
+        Returns overall score and component breakdown.
+        """
+        scores = {}
+
+        # 1. Feature vector similarity (cosine)
+        if f1.feature_vector is not None and f2.feature_vector is not None:
+            v1, v2 = f1.feature_vector, f2.feature_vector
+            dot_product = np.dot(v1, v2)
+            norm1, norm2 = np.linalg.norm(v1), np.linalg.norm(v2)
+            if norm1 > 0 and norm2 > 0:
+                scores['feature_cosine'] = float(dot_product / (norm1 * norm2))
+            else:
+                scores['feature_cosine'] = 0.0
+        else:
+            scores['feature_cosine'] = 0.0
+
+        # 2. Embedding similarity (if available)
+        if f1.style_embedding is not None and f2.style_embedding is not None:
+            e1, e2 = f1.style_embedding, f2.style_embedding
+            dot_product = np.dot(e1, e2)
+            norm1, norm2 = np.linalg.norm(e1), np.linalg.norm(e2)
+            if norm1 > 0 and norm2 > 0:
+                scores['embedding_cosine'] = float(dot_product / (norm1 * norm2))
+            else:
+                scores['embedding_cosine'] = 0.0
+        else:
+            scores['embedding_cosine'] = None
+
+        # 3. Character bigram similarity (Jaccard-like)
+        scores['bigram_overlap'] = self._ngram_similarity(f1.char_bigrams, f2.char_bigrams)
+
+        # 4. Trigram similarity
+        scores['trigram_overlap'] = self._ngram_similarity(f1.char_trigrams, f2.char_trigrams)
+
+        # 5. Word bigram similarity
+        scores['word_bigram_overlap'] = self._ngram_similarity(f1.word_bigrams, f2.word_bigrams)
+
+        # 6. Time pattern similarity (hour distribution)
+        if f1.hour_distribution.sum() > 0 and f2.hour_distribution.sum() > 0:
+            scores['time_pattern'] = float(np.dot(f1.hour_distribution, f2.hour_distribution))
+        else:
+            scores['time_pattern'] = 0.0
+
+        # === Weighted combination ===
+        weights = {
+            'feature_cosine': 0.25,
+            'embedding_cosine': 0.30 if scores['embedding_cosine'] is not None else 0.0,
+            'bigram_overlap': 0.15,
+            'trigram_overlap': 0.10,
+            'word_bigram_overlap': 0.10,
+            'time_pattern': 0.10,
+        }
+
+        # Redistribute embedding weight if not available
+        if scores['embedding_cosine'] is None:
+            weights['feature_cosine'] += 0.15
+            weights['bigram_overlap'] += 0.10
+            weights['trigram_overlap'] += 0.05
+
+        overall = 0.0
+        for key, weight in weights.items():
+            if scores.get(key) is not None:
+                overall += weight * scores[key]
+
+        return overall, scores
+
+    def _ngram_similarity(self, ng1: Dict[str, float], ng2: Dict[str, float]) -> float:
+        """Calculate similarity between n-gram distributions."""
+        if not ng1 or not ng2:
             return 0.0
 
-        # Cosine similarity
-        dot_product = sum(a * b for a, b in zip(v1, v2))
-        norm1 = math.sqrt(sum(a * a for a in v1))
-        norm2 = math.sqrt(sum(b * b for b in v2))
-
-        if norm1 == 0 or norm2 == 0:
+        all_ngrams = set(ng1.keys()) | set(ng2.keys())
+        if not all_ngrams:
             return 0.0
 
-        cosine_sim = dot_product / (norm1 * norm2)
-
-        # Also compare character bigrams (Jaccard-like)
-        bigram_sim = self._compare_bigrams(f1.char_bigrams, f2.char_bigrams)
-
-        # Weighted combination
-        return 0.7 * cosine_sim + 0.3 * bigram_sim
-
-    def _compare_bigrams(self, bg1: Dict[str, float], bg2: Dict[str, float]) -> float:
-        """Compare character bigram distributions."""
-        if not bg1 or not bg2:
-            return 0.0
-
-        all_bigrams = set(bg1.keys()) | set(bg2.keys())
-        if not all_bigrams:
-            return 0.0
-
-        # Calculate similarity based on shared bigrams
         intersection = 0.0
         union = 0.0
 
-        for bg in all_bigrams:
-            v1 = bg1.get(bg, 0)
-            v2 = bg2.get(bg, 0)
+        for ng in all_ngrams:
+            v1 = ng1.get(ng, 0)
+            v2 = ng2.get(ng, 0)
             intersection += min(v1, v2)
             union += max(v1, v2)
 
@@ -374,8 +577,59 @@ class StylometryAnalyzer:
 
         return intersection / union
 
+    def cluster_users(self, min_cluster_size: int = 2) -> List[List[int]]:
+        """
+        Use DBSCAN to automatically cluster users with similar writing styles.
+        Returns list of clusters (each cluster is a list of user_ids).
+        """
+        if len(self.user_features) < 2:
+            return []
+
+        try:
+            from sklearn.cluster import DBSCAN
+            from sklearn.preprocessing import StandardScaler
+        except ImportError:
+            print("scikit-learn not available for clustering")
+            return []
+
+        # Build feature matrix
+        user_ids = list(self.user_features.keys())
+        feature_matrix = []
+
+        for uid in user_ids:
+            f = self.user_features[uid]
+            if f.feature_vector is not None:
+                # Combine feature vector with embedding if available
+                if f.style_embedding is not None:
+                    combined = np.concatenate([f.feature_vector, f.style_embedding])
+                else:
+                    combined = f.feature_vector
+                feature_matrix.append(combined)
+            else:
+                feature_matrix.append(np.zeros(50))  # Fallback
+
+        feature_matrix = np.array(feature_matrix)
+
+        # Normalize features
+        scaler = StandardScaler()
+        features_scaled = scaler.fit_transform(feature_matrix)
+
+        # DBSCAN clustering
+        # eps: maximum distance between samples in a cluster
+        # min_samples: minimum samples to form a cluster
+        dbscan = DBSCAN(eps=0.5, min_samples=min_cluster_size, metric='cosine')
+        labels = dbscan.fit_predict(features_scaled)
+
+        # Group users by cluster
+        clusters = defaultdict(list)
+        for i, label in enumerate(labels):
+            if label >= 0:  # -1 means noise (no cluster)
+                clusters[label].append(user_ids[i])
+
+        return [users for users in clusters.values() if len(users) >= min_cluster_size]
+
     def analyze_all_users(self, min_messages: int = 300, days: int = 365,
-                          progress_callback=None) -> Dict:
+                         progress_callback=None) -> Dict:
         """Analyze all active users and find potential duplicates."""
 
         # Get active users
@@ -393,7 +647,7 @@ class StylometryAnalyzer:
             self.user_features[user_id] = features
 
             if progress_callback:
-                progress_callback('user_processed', idx + 1, total_users, user_name)
+                progress_callback('user_processed', idx + 1, total_users, user_name or f"User_{user_id}")
 
         # Find similar pairs
         if progress_callback:
@@ -409,14 +663,16 @@ class StylometryAnalyzer:
                 uid1, uid2 = user_ids[i], user_ids[j]
                 f1, f2 = self.user_features[uid1], self.user_features[uid2]
 
-                similarity = self.calculate_similarity(f1, f2)
+                similarity, score_breakdown = self.calculate_similarity(f1, f2)
 
                 if similarity >= self.similarity_threshold:
                     similar_pairs.append({
                         'user1': f1.to_dict(),
                         'user2': f2.to_dict(),
                         'similarity': round(similarity * 100, 1),
-                        'details': self._get_similarity_details(f1, f2)
+                        'scores': {k: round(v * 100, 1) if v is not None else None
+                                  for k, v in score_breakdown.items()},
+                        'details': self._get_similarity_details(f1, f2, score_breakdown)
                     })
 
                 comparison_count += 1
@@ -426,62 +682,98 @@ class StylometryAnalyzer:
         # Sort by similarity (highest first)
         similar_pairs.sort(key=lambda x: x['similarity'], reverse=True)
 
+        # Run clustering
+        clusters = self.cluster_users(min_cluster_size=2)
+        cluster_info = []
+        for cluster in clusters:
+            cluster_users = [self.user_features[uid].to_dict() for uid in cluster]
+            cluster_info.append({
+                'users': cluster_users,
+                'size': len(cluster)
+            })
+
         return {
             'total_users_analyzed': total_users,
             'threshold': self.similarity_threshold * 100,
             'potential_duplicates': len(similar_pairs),
             'pairs': similar_pairs,
-            'all_users': [f.to_dict() for f in self.user_features.values()]
+            'clusters': cluster_info,
+            'all_users': [f.to_dict() for f in self.user_features.values()],
+            'embedding_model_used': self.embedding_model is not None,
         }
 
-    def _get_similarity_details(self, f1: StyleFeatures, f2: StyleFeatures) -> List[str]:
-        """Get human-readable similarity details."""
+    def _get_similarity_details(self, f1: AdvancedStyleFeatures, f2: AdvancedStyleFeatures,
+                                scores: Dict) -> List[str]:
+        """Get human-readable similarity details in Hebrew."""
         details = []
 
-        # Message length similarity
+        # High embedding similarity
+        if scores.get('embedding_cosine') and scores['embedding_cosine'] > 0.85:
+            details.append("סגנון כתיבה דומה מאוד (AI embedding)")
+
+        # Message length
         len_diff = abs(f1.avg_message_length - f2.avg_message_length)
-        if len_diff < 10:
+        if len_diff < 15:
             details.append(f"אורך הודעה דומה ({f1.avg_message_length:.0f} vs {f2.avg_message_length:.0f})")
 
         # Hebrew/English ratio
         heb_diff = abs(f1.hebrew_ratio - f2.hebrew_ratio)
         if heb_diff < 0.1:
-            details.append(f"יחס עברית/אנגלית דומה ({f1.hebrew_ratio:.0%} vs {f2.hebrew_ratio:.0%})")
+            details.append(f"יחס עברית דומה ({f1.hebrew_ratio:.0%} vs {f2.hebrew_ratio:.0%})")
 
         # Emoji usage
         emoji_diff = abs(f1.emoji_ratio - f2.emoji_ratio)
-        if emoji_diff < 0.01:
+        if emoji_diff < 0.005 and (f1.emoji_ratio > 0.001 or f2.emoji_ratio > 0.001):
             details.append("שימוש דומה באימוג'י")
 
-        # Question marks
-        q_diff = abs(f1.question_rate - f2.question_rate)
-        if q_diff < 0.1:
-            details.append("שימוש דומה בסימני שאלה")
+        # Formality
+        form_diff = abs(f1.formality_score - f2.formality_score)
+        if form_diff < 0.3:
+            if f1.formality_score > 0.3:
+                details.append("שניהם כותבים בסגנון פורמלי")
+            elif f1.formality_score < -0.3:
+                details.append("שניהם כותבים בסגנון לא פורמלי")
+
+        # Slang usage
+        if abs(f1.slang_rate - f2.slang_rate) < 0.1:
+            if f1.slang_rate > 0.2:
+                details.append("שימוש דומה בסלנג")
+
+        # Repeated characters
+        if abs(f1.repeated_chars_rate - f2.repeated_chars_rate) < 0.05:
+            if f1.repeated_chars_rate > 0.1:
+                details.append("שניהם משתמשים בתווים חוזרים (כמו חחחח)")
+
+        # Time patterns
+        if scores.get('time_pattern', 0) > 0.8:
+            details.append("דפוס שעות פעילות דומה מאוד")
 
         # Weekend activity
         weekend_diff = abs(f1.weekend_ratio - f2.weekend_ratio)
         if weekend_diff < 0.1:
             details.append("פעילות דומה בסופ\"ש")
 
-        # Repeated characters
-        if abs(f1.repeated_chars_rate - f2.repeated_chars_rate) < 0.05:
-            if f1.repeated_chars_rate > 0.1:
-                details.append("שניהם משתמשים בתווים חוזרים (כמו כןןןןן)")
+        # Night owl
+        if abs(f1.night_owl_ratio - f2.night_owl_ratio) < 0.05:
+            if f1.night_owl_ratio > 0.1:
+                details.append("שניהם פעילים בשעות הלילה")
 
-        # Time patterns
-        hour_sim = sum(min(h1, h2) for h1, h2 in zip(f1.hour_distribution, f2.hour_distribution))
-        if hour_sim > 0.7:
-            details.append("דפוס שעות פעילות דומה")
+        # N-gram overlap
+        if scores.get('bigram_overlap', 0) > 0.6:
+            details.append("דפוסי אותיות דומים מאוד")
+
+        if scores.get('word_bigram_overlap', 0) > 0.4:
+            details.append("צירופי מילים דומים")
 
         return details
 
 
 # Singleton instance
-_analyzer_instance: Optional[StylometryAnalyzer] = None
+_analyzer_instance: Optional[AdvancedStylometryAnalyzer] = None
 
-def get_stylometry_analyzer() -> StylometryAnalyzer:
+def get_stylometry_analyzer() -> AdvancedStylometryAnalyzer:
     """Get or create the stylometry analyzer singleton."""
     global _analyzer_instance
     if _analyzer_instance is None:
-        _analyzer_instance = StylometryAnalyzer()
+        _analyzer_instance = AdvancedStylometryAnalyzer()
     return _analyzer_instance
