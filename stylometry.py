@@ -169,7 +169,7 @@ class AdvancedStylometryAnalyzer:
     - Hebrew linguistic feature extraction
     """
 
-    def __init__(self, db_path: str = 'telegram_data.db'):
+    def __init__(self, db_path: str = 'telegram.db'):
         self.db_path = db_path
         self.user_features: Dict[int, AdvancedStyleFeatures] = {}
         self.similarity_threshold = 0.85
