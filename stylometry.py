@@ -536,20 +536,23 @@ class AdvancedStylometryAnalyzer:
             scores['time_pattern'] = 0.0
 
         # === Weighted combination ===
+        # Feature Vector and Character Bigrams are the most reliable for identifying
+        # same-person accounts. AI Embedding tends to capture general "Hebrew chat style"
+        # rather than individual fingerprints, so it gets reduced weight.
+        # Time/Word patterns have low discriminative power in practice.
         weights = {
-            'feature_cosine': 0.25,
-            'embedding_cosine': 0.30 if scores['embedding_cosine'] is not None else 0.0,
-            'bigram_overlap': 0.15,
-            'trigram_overlap': 0.10,
-            'word_bigram_overlap': 0.10,
-            'time_pattern': 0.10,
+            'feature_cosine': 0.40,           # Most reliable - individual fingerprint
+            'embedding_cosine': 0.15 if scores['embedding_cosine'] is not None else 0.0,  # General style only
+            'bigram_overlap': 0.25,           # Very reliable character patterns
+            'trigram_overlap': 0.10,          # Good character patterns
+            'word_bigram_overlap': 0.05,      # Low discriminative power
+            'time_pattern': 0.05,             # Low discriminative power
         }
 
         # Redistribute embedding weight if not available
         if scores['embedding_cosine'] is None:
-            weights['feature_cosine'] += 0.15
-            weights['bigram_overlap'] += 0.10
-            weights['trigram_overlap'] += 0.05
+            weights['feature_cosine'] += 0.10
+            weights['bigram_overlap'] += 0.05
 
         overall = 0.0
         for key, weight in weights.items():
