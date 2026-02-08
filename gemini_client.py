@@ -4,12 +4,11 @@ Uses Gemini 1.5 Flash to summarize search results and answer questions.
 """
 
 import os
-import json
 from typing import List, Dict, Optional
 
-# Try importing Google Generative AI
+# Try importing Google GenAI (new package)
 try:
-    import google.generativeai as genai
+    from google import genai
     HAS_GEMINI = True
 except ImportError:
     HAS_GEMINI = False
@@ -20,7 +19,7 @@ class GeminiClient:
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.environ.get('GEMINI_API_KEY')
-        self.model = None
+        self.client = None
         self._initialized = False
 
     def _initialize(self):
@@ -29,7 +28,7 @@ class GeminiClient:
             return True
 
         if not HAS_GEMINI:
-            print("google-generativeai not installed")
+            print("google-genai not installed")
             return False
 
         if not self.api_key:
@@ -37,8 +36,7 @@ class GeminiClient:
             return False
 
         try:
-            genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel('gemini-1.5-flash')
+            self.client = genai.Client(api_key=self.api_key)
             self._initialized = True
             print("Gemini client initialized")
             return True
@@ -130,7 +128,10 @@ class GeminiClient:
 התשובה:"""
 
         try:
-            response = self.model.generate_content(prompt)
+            response = self.client.models.generate_content(
+                model='gemini-1.5-flash',
+                contents=prompt
+            )
             answer = response.text.strip()
 
             return {
