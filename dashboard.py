@@ -173,6 +173,9 @@ def parse_timeframe(timeframe: str) -> tuple[int, int]:
     elif timeframe == 'year':
         start = today_start - timedelta(days=365)
         end = now
+    elif timeframe == '2years':
+        start = today_start - timedelta(days=730)
+        end = now
     elif timeframe == 'all':
         return 0, int(now.timestamp())
     else:
